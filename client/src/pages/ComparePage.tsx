@@ -4,6 +4,8 @@ import { go } from '../App'
 import { fmt, pct, sum } from '../format'
 import { Empty, VersionPill, revLabel } from '../ui'
 
+type Kind = 'Revenue' | 'Expense' | 'Unknown'
+
 const changeCls: Record<ChangeKind, string> = { Added: 'ok', Removed: 'bad', Changed: 'warn', Same: 'neutral' }
 
 export default function ComparePage({ a, b }: { a?: number; b?: number }) {
@@ -48,13 +50,43 @@ export default function ComparePage({ a, b }: { a?: number; b?: number }) {
       <button className="primary" onClick={() => go({ page: 'budgets' })}>Go to budgets</button>
     </Empty></div></div>
 
-  const kind = (acct: string) => accounts.get(acct)?.kind === 'Revenue' ? 'Revenue' : 'Expense'
-  const signed = (r: CompareRow, which: 'a' | 'b') => (kind(r.account) === 'Revenue' ? 1 : -1) * sum(r[which])
+  // Accounts that aren't in the company's chart of accounts are neither revenue nor expense: they are shown
+  // separately and kept out of every total (same rule as the budget list and the server).
+  const kind = (acct: string): Kind => {
+    const k = accounts.get(acct)?.kind
+    return k === 'Revenue' ? 'Revenue' : k === 'Expense' ? 'Expense' : 'Unknown'
+  }
   const rows = (result?.rows ?? []).filter(r => (!changedOnly || r.change !== 'Same') && (!brandFilter || r.brand === brandFilter))
   const all = result?.rows ?? []
-  const total = (k: 'Revenue' | 'Expense', which: 'a' | 'b') => all.filter(r => kind(r.account) === k).reduce((s, r) => s + sum(r[which]), 0)
+  const total = (k: Kind, which: 'a' | 'b', rs: CompareRow[] = all) =>
+    rs.filter(r => kind(r.account) === k).reduce((s, r) => s + sum(r[which]), 0)
   const counts = (c: ChangeKind) => all.filter(r => r.change === c).length
   const byBrand = [...new Set(rows.map(r => r.brand))]
+  const unknownA = total('Unknown', 'a'), unknownB = total('Unknown', 'b')
+
+  const lineRow = (r: CompareRow, k: Kind) => {
+    const key = `${r.brand}|${r.account}`
+    const d = sum(r.b) - sum(r.a)
+    const good = k === 'Revenue' ? d : k === 'Expense' ? -d : 0   // more revenue / less cost is favourable
+    return (
+      <Fragment key={key}>
+        <tr className="clickable" onClick={() => setOpen(open === key ? null : key)}>
+          <td style={{ paddingLeft: 28 }}>{open === key ? '▾' : '▸'} <span className="code">{r.account}</span> {accounts.get(r.account)?.name ?? 'not in chart of accounts'}
+            <span className="small muted"> · {k === 'Unknown' ? 'unmapped' : k}</span></td>
+          <td><span className={`status ${changeCls[r.change]}`}>{r.change}</span></td>
+          <td className="num">{fmt(sum(r.a))}</td><td className="num">{fmt(sum(r.b))}</td>
+          <td className={`num ${good ? (good > 0 ? 'ok' : 'bad') : 'muted'}`}>{d > 0 ? '+' : ''}{fmt(d)}</td>
+          <td className="num muted">{sum(r.a) ? pct(d / sum(r.a) * 100) : '—'}</td>
+        </tr>
+        {open === key && result && (
+          <tr><td colSpan={6} style={{ background: '#fafbfe', padding: '8px 12px 12px 28px' }}>
+            <MonthlyDiff a={r.a} b={r.b} good={k === 'Revenue' ? 1 : k === 'Expense' ? -1 : 0}
+              labelA={`Rev ${result.a.revisionNo}`} labelB={`Rev ${result.b.revisionNo}`} />
+          </td></tr>
+        )}
+      </Fragment>
+    )
+  }
 
   const option = (v: VersionSummary) => <option key={v.id} value={v.id}>{v.fiscalYear} · {revLabel(v)} · {v.status === 'Pushed' ? 'In SAP B1' : v.status}</option>
 
@@ -93,6 +125,12 @@ export default function ComparePage({ a, b }: { a?: number; b?: number }) {
       {!result && !error && <div className="empty">Loading…</div>}
       {result && <>
         {result.a.fiscalYear !== result.b.fiscalYear && <div className="banner info">Comparing different fiscal years ({result.a.fiscalYear} vs {result.b.fiscalYear}) — periods are matched by position (P1 with P1).</div>}
+        {(unknownA !== 0 || unknownB !== 0) && (
+          <div className="banner warn">
+            Some lines use accounts that aren’t in the chart of accounts ({fmt(unknownA)} in Rev {result.a.revisionNo}, {fmt(unknownB)} in Rev {result.b.revisionNo}).
+            They are listed under “Not in chart of accounts” and are not counted in revenue, expenses or net.
+          </div>
+        )}
         <div className="tiles">
           <DeltaTile label="Revenue" a={total('Revenue', 'a')} b={total('Revenue', 'b')} good={1} />
           <DeltaTile label="Expenses" a={total('Expense', 'a')} b={total('Expense', 'b')} good={-1} />
@@ -128,37 +166,28 @@ export default function ComparePage({ a, b }: { a?: number; b?: number }) {
                 <tbody>
                   {byBrand.map(br => {
                     const rs = rows.filter(r => r.brand === br)
-                    const na = rs.reduce((s, r) => s + signed(r, 'a'), 0), nb = rs.reduce((s, r) => s + signed(r, 'b'), 0)
+                    const changedHere = rs.filter(r => r.change !== 'Same').length
                     return (
                       <Fragment key={br}>
                         <tr className="group">
-                          <td>{br} <span className="muted">· {brands.get(br)?.name ?? ''}</span> <span className="small muted">(net of shown lines)</span></td>
-                          <td /><td className="num">{fmt(na)}</td><td className="num">{fmt(nb)}</td>
-                          <td className={`num ${nb - na > 0 ? 'ok' : nb - na < 0 ? 'bad' : ''}`}>{nb - na > 0 ? '+' : ''}{fmt(nb - na)}</td>
-                          <td className="num">{na ? pct((nb - na) / Math.abs(na) * 100) : '—'}</td>
+                          <td colSpan={6}>{br}{brands.get(br)?.name ? <span className="muted"> · {brands.get(br)!.name}</span> : <span className="small warn"> · not a cost center in this company</span>}
+                            <span className="small muted"> · {changedHere} changed line{changedHere === 1 ? '' : 's'}</span></td>
                         </tr>
-                        {rs.map(r => {
-                          const key = `${r.brand}|${r.account}`
-                          const d = sum(r.b) - sum(r.a)
-                          const good = kind(r.account) === 'Revenue' ? d : -d   // more revenue / less cost is favourable
+                        {(['Revenue', 'Expense', 'Unknown'] as Kind[]).map(k => {
+                          const ks = rs.filter(r => kind(r.account) === k)
+                          if (ks.length === 0) return null
                           return (
-                            <Fragment key={key}>
-                              <tr className="clickable" onClick={() => setOpen(open === key ? null : key)}>
-                                <td style={{ paddingLeft: 28 }}>{open === key ? '▾' : '▸'} <span className="code">{r.account}</span> {accounts.get(r.account)?.name ?? '(unknown account)'}
-                                  <span className="small muted"> · {kind(r.account)}</span></td>
-                                <td><span className={`status ${changeCls[r.change]}`}>{r.change}</span></td>
-                                <td className="num">{fmt(sum(r.a))}</td><td className="num">{fmt(sum(r.b))}</td>
-                                <td className={`num ${good ? (good > 0 ? 'ok' : 'bad') : 'muted'}`}>{d > 0 ? '+' : ''}{fmt(d)}</td>
-                                <td className="num muted">{sum(r.a) ? pct(d / sum(r.a) * 100) : '—'}</td>
-                              </tr>
-                              {open === key && (
-                                <tr><td colSpan={6} style={{ background: '#fafbfe', padding: '8px 12px 12px 28px' }}>
-                                  <MonthlyDiff a={r.a} b={r.b} labelA={`Rev ${result.a.revisionNo}`} labelB={`Rev ${result.b.revisionNo}`} />
-                                </td></tr>
-                              )}
+                            <Fragment key={k}>
+                              {ks.map(r => lineRow(r, k))}
+                              <SubtotalRow label={k === 'Revenue' ? 'Total revenue' : k === 'Expense' ? 'Total expenses' : 'Not in chart of accounts (not counted)'}
+                                a={total(k, 'a', ks)} b={total(k, 'b', ks)} good={k === 'Revenue' ? 1 : k === 'Expense' ? -1 : 0} />
                             </Fragment>
                           )
                         })}
+                        {rs.some(r => kind(r.account) !== 'Unknown') && (
+                          <SubtotalRow label="Net contribution (revenue − expenses)" strong
+                            a={total('Revenue', 'a', rs) - total('Expense', 'a', rs)} b={total('Revenue', 'b', rs) - total('Expense', 'b', rs)} good={1} />
+                        )}
                       </Fragment>
                     )
                   })}
@@ -184,7 +213,21 @@ function DeltaTile({ label, a, b, good }: { label: string; a: number; b: number;
   )
 }
 
-function MonthlyDiff({ a, b, labelA, labelB }: { a: number[]; b: number[]; labelA: string; labelB: string }) {
+/** Subtotal of the lines shown above it; the difference is coloured by whether it is good (+revenue, −cost). */
+function SubtotalRow({ label, a, b, good, strong }: { label: string; a: number; b: number; good: 1 | -1 | 0; strong?: boolean }) {
+  const d = b - a
+  const fav = d * good
+  return (
+    <tr className={strong ? 'total' : 'subtotal'}>
+      <td style={{ paddingLeft: 28 }}>{label}</td><td />
+      <td className="num">{fmt(a)}</td><td className="num">{fmt(b)}</td>
+      <td className={`num ${fav > 0 ? 'ok' : fav < 0 ? 'bad' : ''}`}>{d > 0 ? '+' : ''}{fmt(d)}</td>
+      <td className="num">{a ? pct(d / Math.abs(a) * 100) : '—'}</td>
+    </tr>
+  )
+}
+
+function MonthlyDiff({ a, b, labelA, labelB, good }: { a: number[]; b: number[]; labelA: string; labelB: string; good: 1 | -1 | 0 }) {
   return (
     <table className="data" style={{ width: 'auto' }}>
       <thead><tr><th /> {a.map((_, i) => <th key={i} className="num">P{i + 1}</th>)}</tr></thead>
@@ -193,7 +236,7 @@ function MonthlyDiff({ a, b, labelA, labelB }: { a: number[]; b: number[]; label
         <tr><td className="muted nowrap">{labelB}</td>{b.map((x, i) => <td key={i} className="num">{fmt(x)}</td>)}</tr>
         <tr><td className="muted">Δ</td>{b.map((x, i) => {
           const d = x - a[i]
-          return <td key={i} className={`num ${d > 0 ? 'ok' : d < 0 ? 'bad' : 'muted'}`}>{d ? (d > 0 ? '+' : '') + fmt(d) : '·'}</td>
+          return <td key={i} className={`num ${d * good > 0 ? 'ok' : d * good < 0 ? 'bad' : 'muted'}`}>{d ? (d > 0 ? '+' : '') + fmt(d) : '·'}</td>
         })}</tr>
       </tbody>
     </table>

@@ -17,7 +17,7 @@ public record GroupCompanyPart(int CompanyId, decimal[] Budget, decimal[] Actual
 public record GroupRow(string Brand, string BrandName, string Account, string AccountName, AccountKind Kind,
     decimal[] Budget, decimal[] Actual, List<GroupCompanyPart> ByCompany);
 public record GroupCompany(int Id, string Name, string Currency, decimal GroupRate, int? VersionId, string? VersionLabel,
-    List<VersionOption> Options, string? Error);
+    List<VersionOption> Options, string? Error, List<int> OtherYears);
 public record VersionOption(int Id, string Label);
 public record GroupReport(int FiscalYear, int FromPeriod, int ToPeriod, string[] PeriodLabels, int CurrentPeriod,
     List<GroupCompany> Companies, List<GroupRow> Rows);
@@ -90,7 +90,7 @@ public class ReportService(AppDbContext db, GatewayFactory factory, IMemoryCache
                 var acc = accounts.GetValueOrDefault(kv.Key.Account);
                 var brandName = kv.Key.Brand == "" ? "(no brand)" : brands.GetValueOrDefault(kv.Key.Brand)?.Name ?? kv.Key.Brand;
                 return new BvaRow(kv.Key.Brand, brandName, kv.Key.Account, acc?.Name ?? kv.Key.Account,
-                    acc?.Kind ?? AccountKind.Expense, kv.Value.Budget, kv.Value.Actual, compare is null ? null : kv.Value.Compare);
+                    acc?.Kind ?? AccountKind.Other, kv.Value.Budget, kv.Value.Actual, compare is null ? null : kv.Value.Compare);
             })
             .OrderBy(r => r.Brand == "" ? 1 : 0).ThenBy(r => r.Brand).ThenBy(r => r.Kind).ThenBy(r => r.Account)
             .ToList();
@@ -154,7 +154,7 @@ public class ReportService(AppDbContext db, GatewayFactory factory, IMemoryCache
                 if (chosen != null)
                     foreach (var l in await db.Lines.AsNoTracking().Where(l => l.VersionId == chosen.Id).ToListAsync(ct))
                     {
-                        var part = Part(l.BrandCode, l.AccountCode, accounts.GetValueOrDefault(l.AccountCode)?.Kind ?? AccountKind.Expense);
+                        var part = Part(l.BrandCode, l.AccountCode, accounts.GetValueOrDefault(l.AccountCode)?.Kind ?? AccountKind.Other);
                         for (var i = 0; i < 12; i++) part.Budget[i] += l.Amounts[i] * rate;
                     }
 
@@ -171,8 +171,12 @@ public class ReportService(AppDbContext db, GatewayFactory factory, IMemoryCache
             }
             catch (Exception ex) when (ex is not OperationCanceledException) { error = ex.Message; }
 
+            // Fiscal years that do have an approved budget, so an empty year can point to them.
+            var otherYears = await db.Versions.AsNoTracking()
+                .Where(v => v.CompanyId == c.Id && v.FiscalYear != year && v.Status != VersionStatus.Draft)
+                .Select(v => v.FiscalYear).Distinct().OrderBy(y => y).ToListAsync(ct);
             parts.Add(new GroupCompany(c.Id, c.Name, c.Currency, c.GroupRate, chosen?.Id,
-                chosen is null ? null : $"{chosen.Name} · Rev {chosen.RevisionNo}", options, error));
+                chosen is null ? null : $"{chosen.Name} · Rev {chosen.RevisionNo}", options, error, otherYears));
         }
 
         foreach (var row in rows.Values)

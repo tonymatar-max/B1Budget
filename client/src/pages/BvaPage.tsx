@@ -9,7 +9,8 @@ type Metric = 'net' | 'revenue' | 'expense'
 interface Agg { budget: number; actual: number; fyBudget: number; compare: number; monthlyBudget: number[]; monthlyActual: number[]; monthlyCompare: number[] }
 
 const sign = (r: BvaRow, m: Metric) =>
-  m === 'net' ? (r.kind === 'Revenue' ? 1 : -1) : (m === 'revenue') === (r.kind === 'Revenue') ? 1 : 0
+  r.kind === 'Other' ? 0   // not in the chart of accounts: excluded from every total
+    : m === 'net' ? (r.kind === 'Revenue' ? 1 : -1) : (m === 'revenue') === (r.kind === 'Revenue') ? 1 : 0
 
 function aggregate(rows: BvaRow[], m: Metric, from: number, to: number): Agg {
   const a: Agg = { budget: 0, actual: 0, fyBudget: 0, compare: 0, monthlyBudget: Array(12).fill(0), monthlyActual: Array(12).fill(0), monthlyCompare: Array(12).fill(0) }
@@ -200,9 +201,14 @@ export default function BvaPage({ versionId }: { versionId?: number }) {
                         <td>{isOpen ? '▾' : '▸'} {b.code || '—'} <span className="muted">· {b.name}</span> <span className="small muted">(net)</span></td>
                         <VarCells budget={a.budget} actual={a.actual} fy={a.fyBudget} kind="net" cmp={cmpName ? a.compare : null} />
                       </tr>,
-                      ...(isOpen ? (['Revenue', 'Expense'] as const).flatMap(k => {
-                        const rs = b.rows.filter(r => (r.kind === 'Revenue') === (k === 'Revenue'))
+                      ...(isOpen ? (['Revenue', 'Expense', 'Other'] as const).flatMap(k => {
+                        const rs = b.rows.filter(r => r.kind === k)
                         if (!rs.length) return []
+                        // Accounts not in the chart of accounts: listed for visibility, never totalled.
+                        if (k === 'Other') return [
+                          <tr key={b.code + 'other'} className="subtotal"><td colSpan={cmpName ? 9 : 7} style={{ paddingLeft: 28 }}>
+                            Not in chart of accounts (not counted): {rs.map(r => `${r.account} ${fmt(sum(r.budget, f - 1, t))}`).join(' · ')}</td></tr>,
+                        ]
                         const s = aggregate(rs, k === 'Revenue' ? 'revenue' : 'expense', f, t)
                         return [
                           ...rs.map(r => (

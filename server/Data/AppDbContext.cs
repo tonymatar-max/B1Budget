@@ -76,6 +76,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         return await Companies.FindAsync(v.CompanyId) ?? throw new KeyNotFoundException("The budget's company no longer exists.");
     }
 
+    /// <summary>
+    /// Kind of an account in this company's chart; accounts not in the chart are <see cref="AccountKind.Other"/>
+    /// (never the enum default, Revenue) so they stay out of revenue and expense totals.
+    /// </summary>
+    public static AccountKind KindOf(Dictionary<string, AccountKind> kinds, string account) =>
+        kinds.TryGetValue(account, out var k) ? k : AccountKind.Other;
+
     public Task<Dictionary<string, AccountKind>> AccountKindsAsync(int companyId) =>
         Accounts.Where(a => a.CompanyId == companyId).ToDictionaryAsync(a => a.Code, a => a.Kind);
 }

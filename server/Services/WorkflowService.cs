@@ -6,7 +6,7 @@ namespace B1Budget.Api.Services;
 
 public record DeptView(string Brand, string BrandName, List<string> Owners, DeptStatus Status,
     string? SubmittedBy, DateTime? SubmittedAt, string? Approver, string? DecidedBy, DateTime? DecidedAt, string? Comment,
-    int LineCount, decimal Revenue, decimal Expense,
+    int LineCount, decimal Revenue, decimal Expense, decimal Unmapped,
     bool CanEdit, bool CanSubmit, bool CanApprove, bool CanReject, bool CanReopen);
 
 /// <summary>
@@ -73,8 +73,9 @@ public class WorkflowService(AppDbContext db, Notifier notifier, ILogger<Workflo
                 st is null || status == DeptStatus.Draft ? null : st.ApproverId is int ap ? names.GetValueOrDefault(ap) : "Administrator",
                 st?.DecidedById is int d ? names.GetValueOrDefault(d) : null, st?.DecidedAt, st?.Comment,
                 ls.Count,
-                ls.Where(l => kinds.GetValueOrDefault(l.AccountCode) == AccountKind.Revenue).Sum(l => l.Amounts.Sum()),
-                ls.Where(l => kinds.GetValueOrDefault(l.AccountCode) != AccountKind.Revenue).Sum(l => l.Amounts.Sum()),
+                ls.Where(l => AppDbContext.KindOf(kinds, l.AccountCode) == AccountKind.Revenue).Sum(l => l.Amounts.Sum()),
+                ls.Where(l => AppDbContext.KindOf(kinds, l.AccountCode) == AccountKind.Expense).Sum(l => l.Amounts.Sum()),
+                ls.Where(l => AppDbContext.KindOf(kinds, l.AccountCode) == AccountKind.Other).Sum(l => l.Amounts.Sum()),
                 CanEdit: draft && Editable(status),
                 CanSubmit: draft && Editable(status),
                 // Admins may approve directly (e.g. departments with no owner in the app).

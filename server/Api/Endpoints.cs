@@ -15,7 +15,7 @@ public record SaveCompanyRequest(string Name, string Currency, decimal GroupRate
 
 public record VersionSummary(int Id, int CompanyId, int FamilyId, int RevisionNo, int? ParentVersionId, int FiscalYear, string Name, string? Notes,
     VersionStatus Status, DateTime CreatedAt, DateTime UpdatedAt, DateTime? ApprovedAt, DateTime? LastPushedAt, DateTime? SupersededAt,
-    int LineCount, int BrandCount, decimal Revenue, decimal Expense);
+    int LineCount, int BrandCount, decimal Revenue, decimal Expense, decimal Unmapped);
 public record ReviseRequest(string? Notes);
 public record CreateVersionRequest(int FiscalYear, string Name, string? Notes, int? CopyFromVersionId);
 public record UpdateVersionRequest(string Name, string? Notes);
@@ -590,6 +590,8 @@ public static class Endpoints
         v.Id, v.CompanyId, v.FamilyId, v.RevisionNo, v.ParentVersionId, v.FiscalYear, v.Name, v.Notes, v.Status, v.CreatedAt, v.UpdatedAt,
         v.ApprovedAt, v.LastPushedAt, v.SupersededAt,
         v.Lines.Count, v.Lines.Select(l => l.BrandCode).Distinct().Count(),
-        v.Lines.Where(l => kinds.GetValueOrDefault(l.AccountCode) == AccountKind.Revenue).Sum(l => l.Amounts.Sum()),
-        v.Lines.Where(l => kinds.GetValueOrDefault(l.AccountCode) != AccountKind.Revenue).Sum(l => l.Amounts.Sum()));
+        v.Lines.Where(l => AppDbContext.KindOf(kinds, l.AccountCode) == AccountKind.Revenue).Sum(l => l.Amounts.Sum()),
+        v.Lines.Where(l => AppDbContext.KindOf(kinds, l.AccountCode) == AccountKind.Expense).Sum(l => l.Amounts.Sum()),
+        // Lines on accounts that are not (or no longer) in the chart of accounts — excluded from both totals above.
+        v.Lines.Where(l => AppDbContext.KindOf(kinds, l.AccountCode) == AccountKind.Other).Sum(l => l.Amounts.Sum()));
 }

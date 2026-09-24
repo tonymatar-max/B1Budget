@@ -233,6 +233,7 @@ export interface GroupCompany {
   versionLabel: string | null
   options: { id: number; label: string }[]
   error: string | null
+  otherYears: number[]
 }
 export interface GroupReport {
   fiscalYear: number

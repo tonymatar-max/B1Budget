@@ -8,7 +8,8 @@ const variance = (budget: number, actual: number, kind: 'Revenue' | 'Expense' | 
 
 type Metric = 'revenue' | 'expense' | 'net'
 const sign = (r: GroupRow, m: Metric) =>
-  m === 'net' ? (r.kind === 'Revenue' ? 1 : -1) : (m === 'revenue') === (r.kind === 'Revenue') ? 1 : 0
+  r.kind === 'Other' ? 0   // not in the chart of accounts: excluded from every total
+    : m === 'net' ? (r.kind === 'Revenue' ? 1 : -1) : (m === 'revenue') === (r.kind === 'Revenue') ? 1 : 0
 
 function totals(rows: GroupRow[], m: Metric, f: number, t: number, companyId?: number) {
   let budget = 0, actual = 0
@@ -121,7 +122,9 @@ export default function GroupPage() {
                       <td><strong>{c.name}</strong>{c.error && <div className="small bad">{c.error}</div>}</td>
                       <td>{c.currency || '—'}</td>
                       <td className="num">{c.groupRate}</td>
-                      <td>{c.options.length === 0 ? <span className="muted small">No approved budget for {report.fiscalYear}</span> : (
+                      <td>{c.options.length === 0 ? <span className="muted small">No approved budget for {report.fiscalYear}
+                          {c.otherYears.length > 0 && <> — has {c.otherYears.map((y, i) => <span key={y}>{i ? ', ' : ''}
+                            <button className="link small" onClick={() => { setFrom(undefined); setTo(undefined); setPicks({}); setYear(y) }}>FY {y}</button></span>)}</>}</span> : (
                         <select value={c.versionId ?? ''} onChange={e => setPicks({ ...picks, [c.id]: Number(e.target.value) })}>
                           {c.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
                         </select>)}</td>

@@ -41,7 +41,7 @@ export default function EditorPage({ id, settings, initialBrand }: { id: number;
       setDirty(new Set())
       setBrands(b)
       setAccounts(a)
-      setBrand(cur => cur || (initialBrand && b.some(x => x.code === initialBrand) ? initialBrand : '')
+      setBrand(cur => cur || (initialBrand && (b.some(x => x.code === initialBrand) || grouped[initialBrand]) ? initialBrand : '')
         || ds.find(d => d.canEdit)?.brand || b.find(x => x.active)?.code || b[0]?.code || '')
     } catch (e) { setError((e as Error).message) }
   }
@@ -77,7 +77,11 @@ export default function EditorPage({ id, settings, initialBrand }: { id: number;
 
   const brandNet = (code: string) => {
     let n = 0
-    for (const l of lines[code] ?? []) n += (accountMap.get(l.accountCode)?.kind === 'Revenue' ? 1 : -1) * sum(l.amounts)
+    // Accounts not in the chart of accounts count toward neither revenue nor expenses.
+    for (const l of lines[code] ?? []) {
+      const k = accountMap.get(l.accountCode)?.kind
+      n += (k === 'Revenue' ? 1 : k === 'Expense' ? -1 : 0) * sum(l.amounts)
+    }
     return n
   }
 
@@ -176,10 +180,16 @@ export default function EditorPage({ id, settings, initialBrand }: { id: number;
   }
 
   const revenueLines = brandLines.filter(l => accountMap.get(l.accountCode)?.kind === 'Revenue').sort((a, b) => a.accountCode.localeCompare(b.accountCode))
-  const expenseLines = brandLines.filter(l => accountMap.get(l.accountCode)?.kind !== 'Revenue').sort((a, b) => a.accountCode.localeCompare(b.accountCode))
+  const expenseLines = brandLines.filter(l => accountMap.get(l.accountCode)?.kind === 'Expense').sort((a, b) => a.accountCode.localeCompare(b.accountCode))
+  const unmappedLines = brandLines.filter(l => { const k = accountMap.get(l.accountCode)?.kind; return k !== 'Revenue' && k !== 'Expense' })
+    .sort((a, b) => a.accountCode.localeCompare(b.accountCode))
   const colSum = (ls: Line[], i: number) => ls.reduce((s, l) => s + l.amounts[i], 0)
   const unused = accounts.filter(a => !brandLines.some(l => l.accountCode === a.code))
-  const visibleBrands = brands.filter(b => b.active || (lines[b.code]?.length ?? 0) > 0)
+  // Cost centers of this company, plus any brand code the budget has lines for that isn't one of them
+  // (e.g. left over from demo data) — shown and flagged, never silently hidden.
+  const strayBrands: Brand[] = Object.keys(lines).filter(c => (lines[c]?.length ?? 0) > 0 && !brandCodes.has(c)).sort()
+    .map(c => ({ code: c, name: '', active: false }))
+  const visibleBrands = [...brands.filter(b => b.active || (lines[b.code]?.length ?? 0) > 0), ...strayBrands]
   const brandName = brands.find(b => b.code === brand)?.name ?? brand
 
   const renderRows = (ls: Line[]) => ls.map(l => {
@@ -299,7 +309,9 @@ export default function EditorPage({ id, settings, initialBrand }: { id: number;
                 <button key={b.code} className={`brand-item${b.code === brand ? ' active' : ''}`} onClick={() => setBrand(b.code)}>
                   <span className="nm">
                     <strong>{b.code}{dirty.has(b.code) && <span className="dot-dirty" title="Unsaved changes" />}</strong>
-                    <span>{b.name}{!b.active && ' (inactive)'}</span>
+                    {brandCodes.has(b.code)
+                      ? <span>{b.name}{!b.active && ' (inactive)'}</span>
+                      : <span className="warn">not a cost center in this company</span>}
                     {versionDraft && (() => {
                       const st = depts.find(d => d.brand === b.code)?.status
                       return st && st !== 'Draft' ? <span style={{ marginTop: 3 }}><DeptPill status={st} /></span> : null
@@ -366,6 +378,11 @@ export default function EditorPage({ id, settings, initialBrand }: { id: number;
                       <tr className="section"><td className="acct">Expenses</td><td colSpan={14} /></tr>
                       {renderRows(expenseLines)}
                       {subtotal('Total expenses', expenseLines)}
+                    </>}
+                    {unmappedLines.length > 0 && <>
+                      <tr className="section"><td className="acct">Not in chart of accounts</td><td colSpan={14} /></tr>
+                      {renderRows(unmappedLines)}
+                      {subtotal('Not counted in net', unmappedLines)}
                     </>}
                     <tr className="net">
                       <td className="acct">Net contribution</td>
