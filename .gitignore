@@ -1,0 +1,24 @@
+# Build output
+server/bin/
+server/obj/
+server/wwwroot/
+client/node_modules/
+client/dist/
+*.tsbuildinfo
+
+# Runtime data — SQLite database, DataProtection keys (encrypt stored passwords), logs.
+# Listed by file, not as "server/data/": Git on Windows ignores case, and that would also hide the server/Data/ source folder.
+server/data/keys/
+server/data/*.xml
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Local tooling
+.vs/
+.vscode/
+.idea/
+*.user
+.claude/
+.diag-bin/
