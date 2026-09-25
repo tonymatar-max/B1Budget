@@ -10,6 +10,12 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Run under the Windows Service Control Manager when launched as a service (no-op when run from a console),
+// so `sc start` works and the service reports Running/Stopped correctly. UseWindowsService also points the
+// content root at the executable's folder instead of C:\Windows\System32, which keeps `data` next to the app.
+builder.Host.UseWindowsService(o => o.ServiceName = "Nexus B1 Budget");
+builder.Logging.AddEventLog(o => o.SourceName = "Nexus B1 Budget");
+
 var dataDir = Path.Combine(builder.Environment.ContentRootPath, "data");
 Directory.CreateDirectory(dataDir);
 

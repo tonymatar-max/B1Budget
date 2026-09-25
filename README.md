@@ -13,6 +13,25 @@ cd server && dotnet run          # API + built UI on http://localhost:5140
 cd client && npm install && npm run dev   # dev UI with hot reload on :5175
 ```
 
+## Run as a Windows service
+
+Publish the app and install it as an auto-starting Windows service (it keeps running with no one logged in and restarts on crash or reboot). From an **elevated** PowerShell:
+
+```powershell
+# 1. Build the UI and publish the API (default target C:\NexusB1Budget)
+./deploy/publish.ps1 -Dest C:\NexusB1Budget
+
+# 2. Install and start the service (LocalSystem by default)
+./deploy/install-service.ps1 -Dest C:\NexusB1Budget
+```
+
+Then open **http://localhost:5140** on the server to create the first administrator. To run under a specific account: `./deploy/install-service.ps1 -Dest C:\NexusB1Budget -Account ".\svc_budget" -Password "…"`. To remove it: `./deploy/uninstall-service.ps1`.
+
+- The service is named **NexusB1Budget** ("Nexus B1 Budget"), starts automatically, and logs to the **Application** event log (source *Nexus B1 Budget*).
+- Data lives in `data\` **next to the published exe** (`C:\NexusB1Budget\data`) — `budget.db` and the DataProtection `keys`. Back them up together; see [Data](#data).
+- To upgrade: `Stop-Service NexusB1Budget`, re-run `publish.ps1` to the same folder, `Start-Service NexusB1Budget`. The DB is upgraded in place on start.
+- It binds `http://localhost:5140` (`Urls` in `appsettings.json`), so it is reachable **only from the server**. To let other machines in, change `Urls` to `http://+:5140`, then open the port: `New-NetFirewallRule -DisplayName "Nexus B1 Budget" -Direction Inbound -Protocol TCP -LocalPort 5140 -Action Allow`. Note the first administrator must still be created from a browser **on the server itself**.
+
 **Users & approvals.** Everyone signs in (cookie session, hashed passwords). On first start the app asks for the first **administrator**, which can only be done from a browser on the server itself. Administrators create users under **Users**:
 - **Role**: *User* (budget owner), *Manager* (also approves their team), or *Admin* (finance: everything).
 - **Departments**: the cost centers (per company) the person budgets.
