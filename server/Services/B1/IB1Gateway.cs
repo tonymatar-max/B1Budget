@@ -25,8 +25,12 @@ public interface IB1Gateway : IDisposable
     Task<BudgetFieldMap> GetBudgetFieldMapAsync(CancellationToken ct);
     /// <summary>Find the budget scenario for this name + fiscal year without creating it.</summary>
     Task<int?> FindScenarioAsync(string name, DateTime fiscalYearStart, CancellationToken ct);
-    /// <summary>Find or create the budget scenario for this name + fiscal year; returns its numerator.</summary>
-    Task<(int Numerator, bool Created)> EnsureScenarioAsync(string name, DateTime fiscalYearStart, CancellationToken ct);
+    /// <summary>
+    /// Find or create the budget scenario for this name + fiscal year; returns its numerator.
+    /// When <paramref name="costCenter"/> is set (the brand's distribution rule) the scenario's cost-center
+    /// dimension is stamped with it, so B1's Budget Scenarios window shows the department against the scenario.
+    /// </summary>
+    Task<(int Numerator, bool Created)> EnsureScenarioAsync(string name, DateTime fiscalYearStart, string? costCenter, CancellationToken ct);
     /// <summary>Create or update the native budget for one account in one scenario.</summary>
     Task<UpsertResult> UpsertBudgetAsync(int scenario, string account, AccountKind kind, decimal[] periods, CancellationToken ct);
     /// <summary>Zero an existing budget (no-op if B1 has none). Returns true if anything changed.</summary>

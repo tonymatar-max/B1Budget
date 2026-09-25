@@ -163,12 +163,28 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
         return (int)Dec(match, m.ScenarioKey);
     }
 
-    public async Task<(int Numerator, bool Created)> EnsureScenarioAsync(string name, DateTime fiscalYearStart, CancellationToken ct)
+    public async Task<(int Numerator, bool Created)> EnsureScenarioAsync(string name, DateTime fiscalYearStart, string? costCenter, CancellationToken ct)
     {
-        if (await FindScenarioAsync(name, fiscalYearStart, ct) is int found) return (found, false);
         var m = await GetBudgetFieldMapAsync(ct);
+        var setDim = m.ScenarioDimension != null && !string.IsNullOrWhiteSpace(costCenter);
+
+        if (await FindScenarioAsync(name, fiscalYearStart, ct) is int found)
+        {
+            // Existing scenario: stamp the cost center only if B1 has none yet, so a value set by hand is never overwritten.
+            if (setDim)
+            {
+                var rows = await sl.QueryAllAsync(
+                    $"{m.ScenarioSet}?$select={m.ScenarioKey},{m.ScenarioDimension}&$filter={m.ScenarioName} eq {Quote(name)}", ct);
+                var row = rows.FirstOrDefault(r => (int)Dec(r, m.ScenarioKey) == found);
+                if (row is not null && string.IsNullOrWhiteSpace(Str(row, m.ScenarioDimension!)))
+                    await sl.PatchAsync($"{m.ScenarioSet}({found})", new JsonObject { [m.ScenarioDimension!] = costCenter }, ct);
+            }
+            return (found, false);
+        }
+
         var body = new JsonObject { [m.ScenarioName] = name, [m.ScenarioStart] = fiscalYearStart.ToString("yyyy-MM-dd") };
         if (m.ScenarioRatio != null) body[m.ScenarioRatio] = 100;
+        if (setDim) body[m.ScenarioDimension!] = costCenter;
         var created = await sl.PostAsync(m.ScenarioSet, body, ct);
         return ((int)Dec(created, m.ScenarioKey), true);
     }

@@ -122,7 +122,7 @@ public class MockGateway(int companyId) : IB1Gateway
         }
     }
 
-    public Task<(int Numerator, bool Created)> EnsureScenarioAsync(string name, DateTime fiscalYearStart, CancellationToken ct)
+    public Task<(int Numerator, bool Created)> EnsureScenarioAsync(string name, DateTime fiscalYearStart, string? costCenter, CancellationToken ct)
     {
         lock (Gate)
         {

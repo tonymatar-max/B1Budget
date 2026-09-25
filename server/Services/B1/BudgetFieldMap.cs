@@ -16,6 +16,15 @@ public class BudgetFieldMap
     public string ScenarioStart { get; set; } = "StartofFiscalYear";
     public string? ScenarioRatio { get; set; } = "InitialRatioPercentage";
 
+    /// <summary>
+    /// OData property on the budget scenario that carries the cost-center distribution rule for the
+    /// company's dimension (the "Departments" column in B1's Budget Scenarios window). Null means the
+    /// scenario is created without a cost center (the behaviour before this was added). Detected from
+    /// $metadata when possible; pin it with the field-map override (e.g. {"ScenarioDimension":"FactorCode1"})
+    /// if detection misses or picks the wrong dimension's property.
+    /// </summary>
+    public string? ScenarioDimension { get; set; }
+
     public string BudgetSet { get; set; } = "Budgets";
     public string BudgetKey { get; set; } = "Numerator";
     public string BudgetAccount { get; set; } = "AccountCode";
@@ -54,6 +63,15 @@ public class BudgetFieldMap
             map.ScenarioName = Pick(p, map, "scenario name", ["Name", "ScenarioName"], n => n.Contains("Name")) ?? map.ScenarioName;
             map.ScenarioStart = Pick(p, map, "scenario fiscal-year start", ["StartofFiscalYear", "StartOfFiscalYear"], n => n.Contains("Start") && n.Contains("Year")) ?? map.ScenarioStart;
             map.ScenarioRatio = Pick(p, map, "scenario initial ratio", ["InitialRatioPercentage"], n => n.Contains("Ratio"), required: false);
+            // Cost-center dimension on the scenario (B1's "Departments"/"Line of Business"/… column). B1 exposes one
+            // property per dimension, so detection is best-effort — the field-map override pins the right one.
+            map.ScenarioDimension = Pick(p, map, "scenario cost-center dimension", [],
+                n => n.Contains("Distribution", StringComparison.OrdinalIgnoreCase)
+                     || n.Contains("CostCenter", StringComparison.OrdinalIgnoreCase)
+                     || (n.Contains("Factor", StringComparison.OrdinalIgnoreCase) && !n.Contains("Description", StringComparison.OrdinalIgnoreCase))
+                     || (n.Contains("Dim", StringComparison.OrdinalIgnoreCase) && n.Contains("Code", StringComparison.OrdinalIgnoreCase)),
+                required: false);
+            map.Notes.Add("Budget-scenario properties available: " + string.Join(", ", p));
         }
         else map.Notes.Add("EntityType BudgetScenario not found in $metadata — using defaults.");
 

@@ -121,7 +121,10 @@ public partial class PushService(IServiceScopeFactory scopes, ILogger<PushServic
                     }
                     else
                     {
-                        (scenario, var created) = await gateway.EnsureScenarioAsync(t.Scenario, cal.YearStart(year), CancellationToken.None);
+                        // Stamp the scenario with its cost center (the brand's distribution rule). The Main Budget spans
+                        // every cost center, so it is created without one.
+                        var costCenter = t.Brand == AllBrands ? null : t.Brand;
+                        (scenario, var created) = await gateway.EnsureScenarioAsync(t.Scenario, cal.YearStart(year), costCenter, CancellationToken.None);
                         if (created) log.LogInformation("Created budget scenario {Name} ({Id})", t.Scenario, scenario);
                     }
                 }
