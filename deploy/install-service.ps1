@@ -15,15 +15,21 @@
 .PARAMETER Password
   Password for -Account (omit for LocalSystem / a gMSA).
 
+.PARAMETER DataFrom
+  Optional source data folder (with budget.db and keys\) to seed into $Dest\data before starting —
+  e.g. to ship demo data. Existing data is backed up first.
+
 .EXAMPLE
   ./deploy/install-service.ps1 -Dest C:\NexusB1Budget
+  ./deploy/install-service.ps1 -Dest C:\NexusB1Budget -DataFrom "C:\Claude\b1-budget\server\Data"
 #>
 param(
   [string]$Dest    = "C:\NexusB1Budget",
   [string]$Name    = "NexusB1Budget",
   [string]$Display = "Nexus B1 Budget",
   [string]$Account = "LocalSystem",
-  [string]$Password
+  [string]$Password,
+  [string]$DataFrom
 )
 $ErrorActionPreference = "Stop"
 
@@ -68,6 +74,23 @@ New-Service @params | Out-Null
 
 # Restart automatically if it ever crashes.
 sc.exe failure $Name reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null
+
+# Optionally seed the data folder (e.g. demo data) before the first start.
+if ($DataFrom) {
+  $srcDb = Join-Path $DataFrom "budget.db"
+  if (-not (Test-Path $srcDb)) { throw "-DataFrom '$DataFrom' has no budget.db." }
+  $dataDir = Join-Path $Dest "data"
+  New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+  if (Test-Path (Join-Path $dataDir "budget.db")) {
+    $backup = "$dataDir.backup-{0:yyyyMMdd-HHmmss}" -f (Get-Date)
+    Copy-Item $dataDir $backup -Recurse
+    Write-Host "Backed up existing data to $backup" -ForegroundColor DarkGray
+  }
+  Remove-Item (Join-Path $dataDir "budget.db-wal"),(Join-Path $dataDir "budget.db-shm") -Force -ErrorAction SilentlyContinue
+  Copy-Item $srcDb (Join-Path $dataDir "budget.db") -Force
+  if (Test-Path (Join-Path $DataFrom "keys")) { Copy-Item (Join-Path $DataFrom "keys") $dataDir -Recurse -Force }
+  Write-Host "Seeded data from $DataFrom" -ForegroundColor DarkGray
+}
 
 Write-Host "Starting service..." -ForegroundColor Cyan
 Start-Service -Name $Name

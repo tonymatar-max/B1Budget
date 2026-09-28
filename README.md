@@ -25,7 +25,15 @@ Publish the app and install it as an auto-starting Windows service (it keeps run
 ./deploy/install-service.ps1 -Dest C:\NexusB1Budget
 ```
 
-Then open **http://localhost:5140** on the server to create the first administrator. To run under a specific account: `./deploy/install-service.ps1 -Dest C:\NexusB1Budget -Account ".\svc_budget" -Password "…"`. To remove it: `./deploy/uninstall-service.ps1`.
+Then open **http://localhost:5140** on the server to create the first administrator.
+
+To **seed the service with existing data** (e.g. demo data from the dev folder): install with `-DataFrom`, or copy it into an already-installed service with `deploy\seed-demo-data.ps1` (both stop the service, back up the current data, copy `budget.db` + `keys`, and restart):
+
+```powershell
+./deploy/install-service.ps1 -Dest C:\NexusB1Budget -DataFrom "C:\Claude\b1-budget\server\Data"
+# or, for a service that is already installed:
+./deploy/seed-demo-data.ps1 -From "C:\Claude\b1-budget\server\Data"
+``` To run under a specific account: `./deploy/install-service.ps1 -Dest C:\NexusB1Budget -Account ".\svc_budget" -Password "…"`. To remove it: `./deploy/uninstall-service.ps1`.
 
 - The service is named **NexusB1Budget** ("Nexus B1 Budget"), starts automatically, and logs to the **Application** event log (source *Nexus B1 Budget*).
 - Data lives in `data\` **next to the published exe** (`C:\NexusB1Budget\data`) — `budget.db` and the DataProtection `keys`. Back them up together; see [Data](#data).
