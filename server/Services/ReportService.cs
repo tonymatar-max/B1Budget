@@ -204,6 +204,26 @@ public class ReportService(AppDbContext db, GatewayFactory factory, IMemoryCache
         });
     }
 
+    /// <summary>Actual sales (revenue accounts, credit − debit) per brand per fiscal period for a year, with the as-of time.</summary>
+    public async Task<(Dictionary<string, decimal[]> ByBrand, DateTime AsOf)> SalesActualsByBrandAsync(Company c, int year, bool refresh, CancellationToken ct)
+    {
+        using var gateway = factory.Create(c);
+        var cal = new FiscalCalendar(c.FiscalYearStartMonth);
+        var kinds = await db.AccountKindsAsync(c.Id);
+        var (rows, asOf) = await CachedActualsAsync(c, gateway, year, refresh, ct);
+        var byBrand = new Dictionary<string, decimal[]>();
+        foreach (var r in rows)
+        {
+            if (string.IsNullOrEmpty(r.Brand)) continue;
+            if (AppDbContext.KindOf(kinds, r.Account) != AccountKind.Revenue) continue;
+            var p = cal.PeriodOf(year, r.Date);
+            if (p == 0) continue;
+            if (!byBrand.TryGetValue(r.Brand, out var arr)) byBrand[r.Brand] = arr = new decimal[12];
+            arr[p - 1] += r.Credit - r.Debit;
+        }
+        return (byBrand, asOf);
+    }
+
     public async Task<List<JournalLineDto>> DrillAsync(int versionId, string brand, string account, int fromPeriod, int toPeriod, CancellationToken ct)
     {
         var version = await db.Versions.AsNoTracking().FirstOrDefaultAsync(v => v.Id == versionId, ct)

@@ -8,6 +8,7 @@ import NotificationsPage from './pages/NotificationsPage'
 import BudgetsPage from './pages/BudgetsPage'
 import EditorPage from './pages/EditorPage'
 import BvaPage from './pages/BvaPage'
+import ForecastPage from './pages/ForecastPage'
 import ComparePage from './pages/ComparePage'
 import GroupPage from './pages/GroupPage'
 import HistoryPage from './pages/HistoryPage'
@@ -17,6 +18,7 @@ export type Route =
   | { page: 'budgets' }
   | { page: 'editor'; id: number; brand?: string }
   | { page: 'bva'; id?: number }
+  | { page: 'forecast'; year?: number }
   | { page: 'compare'; a?: number; b?: number }
   | { page: 'group' }
   | { page: 'history'; runId?: number }
@@ -33,6 +35,7 @@ function parse(hash: string): Route {
   const parts = path.split('/')
   if (parts[0] === 'budgets' && parts[1]) return { page: 'editor', id: Number(parts[1]), brand: params.get('b') ?? undefined }
   if (parts[0] === 'bva') return { page: 'bva', id: params.get('v') ? Number(params.get('v')) : undefined }
+  if (parts[0] === 'forecast') return { page: 'forecast', year: num(params.get('y')) }
   if (parts[0] === 'compare') return { page: 'compare', a: num(params.get('a')), b: num(params.get('b')) }
   if (parts[0] === 'group') return { page: 'group' }
   if (parts[0] === 'history') return { page: 'history', runId: parts[1] ? Number(parts[1]) : undefined }
@@ -47,6 +50,7 @@ export function href(r: Route): string {
   switch (r.page) {
     case 'editor': return `#/budgets/${r.id}${r.brand ? `?b=${encodeURIComponent(r.brand)}` : ''}`
     case 'bva': return r.id ? `#/bva?v=${r.id}` : '#/bva'
+    case 'forecast': return r.year ? `#/forecast?y=${r.year}` : '#/forecast'
     case 'compare': return `#/compare${r.a || r.b ? `?a=${r.a ?? ''}&b=${r.b ?? ''}` : ''}`
     case 'group': return '#/group'
     case 'history': return r.runId ? `#/history/${r.runId}` : '#/history'
@@ -181,6 +185,7 @@ function Shell({ me, reloadMe }: { me: Me; reloadMe: () => void }) {
         {nav(auth.isAdmin ? 'Budgets' : 'My budget', { page: 'budgets' }, route.page === 'budgets' || route.page === 'editor')}
         {nav(auth.isAdmin ? 'Global view' : 'Approvals', { page: 'approvals' }, route.page === 'approvals', auth.isApprover ? inboxCount : 0)}
         {nav('Compare revisions', { page: 'compare' }, route.page === 'compare')}
+        {nav('Sales forecast', { page: 'forecast' }, route.page === 'forecast')}
         {nav('Budget vs actual', { page: 'bva' }, route.page === 'bva')}
         {auth.isAdmin && (companies?.length ?? 0) > 1 && nav('Group report', { page: 'group' }, route.page === 'group')}
         {auth.isAdmin && <>
@@ -196,6 +201,7 @@ function Shell({ me, reloadMe }: { me: Me; reloadMe: () => void }) {
         {route.page === 'budgets' && <BudgetsPage />}
         {route.page === 'editor' && <EditorPage key={`${route.id}-${route.brand ?? ''}`} id={route.id} initialBrand={route.brand} settings={company} />}
         {route.page === 'bva' && <BvaPage versionId={route.id} />}
+        {route.page === 'forecast' && <ForecastPage year={route.year} />}
         {route.page === 'compare' && <ComparePage key={`${route.a}-${route.b}`} a={route.a} b={route.b} />}
         {route.page === 'approvals' && <ApprovalsPage versionId={route.v} />}
         {route.page === 'group' && (auth.isAdmin ? <GroupPage /> : <Denied />)}

@@ -184,6 +184,30 @@ export interface BvaReport {
   compareVersionName: string | null
 }
 
+export interface ForecastBrandRow {
+  brand: string
+  brandName: string
+  canEdit: boolean
+  forecast: number[]
+  budget: number[]
+  actual: number[]
+}
+export interface ForecastReport {
+  companyId: number
+  currency: string
+  fiscalYear: number
+  availableYears: number[]
+  periodLabels: string[]
+  currentPeriod: number
+  elapsedMonths: number
+  hasForecast: boolean
+  updatedAt: string | null
+  actualsAsOf: string | null
+  budgetVersionId: number | null
+  budgetVersionName: string | null
+  rows: ForecastBrandRow[]
+}
+
 export interface JournalLine {
   transId: number
   lineId: number
@@ -342,6 +366,12 @@ export const api = {
   group: (year: number, from?: number, to?: number, refresh = false, versions?: Record<number, number>) =>
     request<GroupReport>('GET', `/reports/group?year=${year}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}${refresh ? '&refresh=true' : ''}${
       versions && Object.keys(versions).length ? `&versions=${Object.entries(versions).map(([c, v]) => `${c}:${v}`).join(',')}` : ''}`),
+  forecast: (year?: number, refresh = false) =>
+    request<ForecastReport>('GET', `/forecast${year ? `?year=${year}` : ''}${refresh ? `${year ? '&' : '?'}refresh=true` : ''}`),
+  saveForecastLine: (year: number, brand: string, amounts: number[]) =>
+    request<void>('PUT', `/forecast/${year}/brands/${encodeURIComponent(brand)}`, { amounts }),
+  seedForecast: (year: number, refresh = false) =>
+    request<{ seeded: number; brands: string[] }>('POST', `/forecast/${year}/seed${refresh ? '?refresh=true' : ''}`),
   drill: (versionId: number, brand: string, account: string, from: number, to: number) =>
     request<JournalLine[]>('GET', `/reports/drill?versionId=${versionId}&brand=${encodeURIComponent(brand)}&account=${encodeURIComponent(account)}&from=${from}&to=${to}`),
 }

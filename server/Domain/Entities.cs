@@ -125,6 +125,33 @@ public class PushItem
     public string? Error { get; set; }
 }
 
+// ------------------------------------------------------------------ sales forecast
+
+/// <summary>
+/// A living sales forecast for one company and fiscal year: expected sales (revenue) per brand (cost center)
+/// per month. One forecast per company+year; owners re-estimate their own brands. App-only — never pushed to
+/// SAP B1. Elapsed months are typically seeded from B1 actual sales and future months from the sales budget.
+/// </summary>
+public class SalesForecast
+{
+    public int Id { get; set; }
+    public int CompanyId { get; set; }
+    public int FiscalYear { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public List<SalesForecastLine> Lines { get; set; } = new();
+}
+
+/// <summary>One brand's 12 monthly expected-sales figures within a <see cref="SalesForecast"/>.</summary>
+public class SalesForecastLine
+{
+    public int Id { get; set; }
+    public int ForecastId { get; set; }
+    public string BrandCode { get; set; } = "";
+    /// <summary>Index 0 = fiscal period 1.</summary>
+    public decimal[] Amounts { get; set; } = new decimal[12];
+}
+
 // ------------------------------------------------------------------ users & approval workflow
 
 public enum UserRole { User, Manager, Admin }

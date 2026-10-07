@@ -24,6 +24,7 @@ public record SaveBrandLinesRequest(List<LineDto> Lines);
 public record SeedRequest(int SourceFiscalYear, decimal UpliftPercent, List<string>? Brands, bool Overwrite);
 public record PushRequest(List<string>? Brands);
 public record DeptActionRequest(string? Comment);
+public record SaveForecastLineRequest(decimal[] Amounts);
 
 public static class Endpoints
 {
@@ -504,6 +505,32 @@ public static class Endpoints
             var v = await access.VersionAsync(versionId);
             if (string.IsNullOrEmpty(brand)) scope.RequireAdmin(); else scope.Require(v.CompanyId, brand);
             return Results.Ok(await reports.DrillAsync(versionId, brand ?? "", account, from, to, ct));
+        });
+
+        // ------------------------------------------------------------ sales forecast
+
+        api.MapGet("/forecast", async (int? year, bool? refresh, ForecastService forecast, AccessService access, CancellationToken ct) =>
+        {
+            var c = await access.CompanyAsync();
+            var scope = await access.ScopeAsync();
+            return Results.Ok(await forecast.GetAsync(c, year, refresh ?? false, scope, ct));
+        });
+
+        api.MapPut("/forecast/{year:int}/brands/{brand}", async (int year, string brand, SaveForecastLineRequest r,
+            ForecastService forecast, AccessService access, CancellationToken ct) =>
+        {
+            var c = await access.CompanyAsync();
+            (await access.ScopeAsync()).Require(c.Id, brand);
+            await forecast.SaveBrandAsync(c, year, brand, r.Amounts ?? new decimal[12], ct);
+            return Results.Ok();
+        });
+
+        api.MapPost("/forecast/{year:int}/seed", async (int year, bool? refresh, ForecastService forecast, AccessService access, CancellationToken ct) =>
+        {
+            var c = await access.CompanyAsync();
+            var scope = await access.ScopeAsync();
+            var seeded = await forecast.SeedAsync(c, year, scope, refresh ?? false, ct);
+            return Results.Ok(new { seeded = seeded.Count, brands = seeded });
         });
 
         // ------------------------------------------------------------ department approval workflow

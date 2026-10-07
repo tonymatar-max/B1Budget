@@ -85,6 +85,15 @@ The first start is in **Mock mode**: demo brands, accounts and actuals, and push
 5. **Compare revisions** shows added, removed and changed lines with the monthly differences. Every revision's page has a revision switcher and a "Changes vs Rev N" button.
 6. **Budget vs actual**: pick a revision and optionally a *second budget* (e.g. Rev 1). You get variance against both, plus the second budget as a line on the chart.
 
+## Sales forecast
+
+A **sales forecast** is a forward-looking estimate of sales (revenue) per cost center per month, for one fiscal year. It is **app-only** — never pushed to SAP B1 — and sits alongside the budget for a *Budget vs Forecast vs Actual* read.
+
+- **Sales forecast** page: one editable figure per **cost center × month**. Owners forecast only their own cost centers (same scoping as budgets); admins see all. There is no submit/approve cycle — it is a living estimate.
+- **Seed from actuals + budget** fills each cost center's elapsed months with B1 **actual sales** and the remaining months with the **sales budget** (the revenue lines of the year's current budget revision), so you only tweak what is left. It overwrites the forecast for your cost centers; a partial current month is *not* treated as elapsed.
+- The tiles show full-year forecast vs budget and actual sales to date; each cost center can be expanded to compare its forecast against the budget and actual rows month by month.
+- The baseline budget is the year's latest non-superseded approved revision (falling back to the latest of any). One forecast is kept per company and fiscal year.
+
 ## Data
 
 `server/data/budget.db` (SQLite) and `server/data/keys` (DataProtection keys; the SL passwords are encrypted with them). Back up both together. The keys are also tied to the app's folder, so after moving or redeploying the app you'll need to re-enter each company's password (the app says so clearly).

@@ -13,6 +13,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<GlAccount> Accounts => Set<GlAccount>();
     public DbSet<BudgetVersion> Versions => Set<BudgetVersion>();
     public DbSet<BudgetLine> Lines => Set<BudgetLine>();
+    public DbSet<SalesForecast> Forecasts => Set<SalesForecast>();
+    public DbSet<SalesForecastLine> ForecastLines => Set<SalesForecastLine>();
     public DbSet<PushRun> PushRuns => Set<PushRun>();
     public DbSet<PushItem> PushItems => Set<PushItem>();
     public DbSet<AppUser> Users => Set<AppUser>();
@@ -46,6 +48,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         var amountsComparer = new ValueComparer<decimal[]>(
             (a, c) => a!.SequenceEqual(c!), a => a.Aggregate(0, (h, d) => HashCode.Combine(h, d)), a => a.ToArray());
         b.Entity<BudgetLine>().Property(l => l.Amounts).HasConversion(amountsConverter, amountsComparer);
+
+        // Sales forecast: one per company+year, with the same 12-period amount storage as budget lines.
+        b.Entity<SalesForecast>().HasIndex(f => new { f.CompanyId, f.FiscalYear }).IsUnique();
+        b.Entity<SalesForecast>().HasMany(f => f.Lines).WithOne().HasForeignKey(l => l.ForecastId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<SalesForecastLine>().HasIndex(l => new { l.ForecastId, l.BrandCode }).IsUnique();
+        b.Entity<SalesForecastLine>().Property(l => l.Amounts).HasConversion(amountsConverter, amountsComparer);
 
         b.Entity<PushRun>().HasMany(r => r.Items).WithOne().HasForeignKey(i => i.RunId).OnDelete(DeleteBehavior.Cascade);
 
