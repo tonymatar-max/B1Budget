@@ -43,7 +43,7 @@ New-Item -ItemType Directory -Force -Path $NewDest | Out-Null
 Write-Host "Copying new build to $NewDest ..." -ForegroundColor Cyan
 robocopy $Staging $NewDest /E /XD (Join-Path $NewDest "data") | Out-Null
 
-# 3. Bring the data (budget.db + keys) across — move the old folder's data if the new one has none yet.
+# 3. Bring the data (budget.db + keys) across - move the old folder's data if the new one has none yet.
 $newData = Join-Path $NewDest "data"; $oldData = Join-Path $OldDest "data"
 if (-not (Test-Path (Join-Path $newData "budget.db")) -and (Test-Path (Join-Path $oldData "budget.db"))) {
   Write-Host "Moving data from $oldData ..." -ForegroundColor Cyan
@@ -56,13 +56,13 @@ if (-not [System.Diagnostics.EventLog]::SourceExists($Display)) { New-EventLog -
 
 # 5. Install and start the renamed service.
 Write-Host "Creating service '$NewName'..." -ForegroundColor Cyan
-New-Service -Name $NewName -BinaryPathName ("`"" + (Join-Path $NewDest "B1Budget.Api.exe") + "`"") `
-  -DisplayName $Display -Description "Cobalt B1 Budget API and web UI (http://localhost:5140)." -StartupType Automatic | Out-Null
+$bin = '"' + (Join-Path $NewDest 'B1Budget.Api.exe') + '"'
+New-Service -Name $NewName -BinaryPathName $bin -DisplayName $Display -Description "Cobalt B1 Budget API and web UI (http://localhost:5140)." -StartupType Automatic | Out-Null
 sc.exe failure $NewName reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null
 Start-Service -Name $NewName
 Start-Sleep -Seconds 3
 Get-Service $NewName | Format-Table -AutoSize
 
 Write-Host "`nDone. Open http://localhost:5140 (hard-refresh)." -ForegroundColor Green
-Write-Host "Re-enter each SAP B1 company's Service Layer password under Companies — the move reset the saved secret." -ForegroundColor Yellow
+Write-Host "Re-enter each SAP B1 company's Service Layer password under Companies - the move reset the saved secret." -ForegroundColor Yellow
 Write-Host "Once verified, you can delete the old folder: $OldDest" -ForegroundColor DarkGray

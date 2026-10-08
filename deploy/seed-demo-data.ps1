@@ -34,7 +34,7 @@ if (-not $admin) { throw "Run this script from an elevated (Administrator) Power
 $srcDb = Join-Path $From "budget.db"
 if (-not (Test-Path $srcDb)) { throw "No budget.db found in '$From'." }
 if (Test-Path (Join-Path $From "budget.db-wal")) {
-  Write-Warning "Source has an open WAL file — the source app may be running. Close it first so the DB on disk is complete."
+  Write-Warning "Source has an open WAL file - the source app may be running. Close it first so the DB on disk is complete."
 }
 
 $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue

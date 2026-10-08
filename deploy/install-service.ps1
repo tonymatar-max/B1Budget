@@ -16,7 +16,7 @@
   Password for -Account (omit for LocalSystem / a gMSA).
 
 .PARAMETER DataFrom
-  Optional source data folder (with budget.db and keys\) to seed into $Dest\data before starting —
+  Optional source data folder (with budget.db and keys\) to seed into $Dest\data before starting -
   e.g. to ship demo data. Existing data is backed up first.
 
 .EXAMPLE
