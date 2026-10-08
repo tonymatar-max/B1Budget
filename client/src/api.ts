@@ -212,6 +212,7 @@ export interface ForecastReport {
   budgetVersionId: number | null
   budgetVersionName: string | null
   rows: ForecastBrandRow[]
+  actualsError: string | null
 }
 
 export interface JournalLine {

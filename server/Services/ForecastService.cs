@@ -11,7 +11,8 @@ public record ForecastBrandRow(string Brand, string BrandName, bool CanEdit,
 public record ForecastReport(int CompanyId, string Currency, int FiscalYear, int[] AvailableYears,
     ForecastBasis Basis, string Udf, string[] UdfFields, bool HasBudgetBaseline, string MemberLabel,
     string[] PeriodLabels, int CurrentPeriod, int ElapsedMonths, bool HasForecast, DateTime? UpdatedAt,
-    DateTime? ActualsAsOf, int? BudgetVersionId, string? BudgetVersionName, List<ForecastBrandRow> Rows);
+    DateTime? ActualsAsOf, int? BudgetVersionId, string? BudgetVersionName, List<ForecastBrandRow> Rows,
+    string? ActualsError);
 
 /// <summary>
 /// Sales forecast for one company, fiscal year and <see cref="ForecastBasis"/>: expected sales per member per
@@ -67,19 +68,21 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
         return cur == 0 ? 0 : cur - 1;
     }
 
-    /// <summary>Members + names, sales budget (dimension only) and actuals for a basis — the shared basis-specific load.</summary>
+    /// <summary>Members + names, sales budget (dimension only) and actuals for a basis — the shared basis-specific load.
+    /// <paramref name="Error"/> is a human-readable reason actuals could not be read (surfaced to the user), not thrown.</summary>
     private async Task<(Dictionary<string, string> Names, Dictionary<string, decimal[]> Budget, Dictionary<string, decimal[]> Actual,
-        DateTime? AsOf, BudgetVersion? Baseline)> LoadBasisAsync(Company c, ForecastBasis basis, string udf, int year, bool refresh, CancellationToken ct)
+        DateTime? AsOf, BudgetVersion? Baseline, string? Error)> LoadBasisAsync(Company c, ForecastBasis basis, string udf, int year, bool refresh, CancellationToken ct)
     {
         var names = new Dictionary<string, string>();
         var budget = new Dictionary<string, decimal[]>();
         var actual = new Dictionary<string, decimal[]>();
         DateTime? asOf = null;
         BudgetVersion? baseline = null;
+        string? error = null;
 
         // An item-UDF forecast needs a field chosen; without one there is nothing to load (the UI picks one and reloads).
         if (basis == ForecastBasis.ItemUdf && string.IsNullOrWhiteSpace(udf))
-            return (names, budget, actual, asOf, baseline);
+            return (names, budget, actual, asOf, baseline, error);
 
         if (basis == ForecastBasis.Dimension)
         {
@@ -87,7 +90,7 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
             baseline = await BaselineVersionAsync(c.Id, year, ct);
             budget = await BudgetSalesByBrandAsync(c, baseline, ct);
             try { (var a, var t) = await reports.SalesActualsByBrandAsync(c, year, refresh, ct); actual = a; asOf = t; }
-            catch { /* actuals are reference-only; a B1 outage must not block forecasting */ }
+            catch (Exception ex) when (ex is not OperationCanceledException) { error = ex.Message; }
         }
         else
         {
@@ -97,16 +100,16 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
                 using var gw = factory.Create(c);
                 foreach (var m in await gw.GetForecastMembersAsync(basis, udf, ct)) names.TryAdd(m.Code, m.Name);
             }
-            catch { /* listing is best-effort; members still come from sales */ }
+            catch (Exception ex) when (ex is not OperationCanceledException) { error = ex.Message; }
             try
             {
                 var (byMember, t) = await reports.SalesByMemberAsync(c, basis, udf, year, refresh, ct);
                 asOf = t;
                 foreach (var (code, (name, amounts)) in byMember) { actual[code] = amounts; if (!string.IsNullOrEmpty(name)) names[code] = name; }
             }
-            catch { /* no sales / B1 unreachable — show members with zero actuals */ }
+            catch (Exception ex) when (ex is not OperationCanceledException) { error = ex.Message; }
         }
-        return (names, budget, actual, asOf, baseline);
+        return (names, budget, actual, asOf, baseline, error);
     }
 
     public async Task<ForecastReport> GetAsync(Company c, int? year, ForecastBasis basis, string? udf, bool refresh, Scope scope, CancellationToken ct)
@@ -118,14 +121,20 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
 
         var budgetYears = await db.Versions.AsNoTracking().Where(v => v.CompanyId == c.Id).Select(v => v.FiscalYear).Distinct().ToListAsync(ct);
         var forecastYears = await db.Forecasts.AsNoTracking().Where(f => f.CompanyId == c.Id).Select(f => f.FiscalYear).ToListAsync(ct);
-        var years = budgetYears.Concat(forecastYears).Append(cal.FiscalYearOf(today)).Distinct().OrderByDescending(y => y).ToArray();
-        var fy = year ?? (years.Contains(cal.FiscalYearOf(today)) ? cal.FiscalYearOf(today) : years.First());
+        // Offer a few recent years too, so item-based forecasting on a live company can reach years that have sales
+        // but no budget yet. Any explicitly requested year is always included.
+        var current = cal.FiscalYearOf(today);
+        var recent = Enumerable.Range(current - 4, 7);   // current-4 … current+2
+        var years = budgetYears.Concat(forecastYears).Concat(recent).Append(current)
+            .Concat(year is int y0 ? [y0] : Array.Empty<int>())
+            .Distinct().OrderByDescending(y => y).ToArray();
+        var fy = year ?? (years.Contains(current) ? current : years.First());
 
         var udfFields = new List<string>();
         if (basis == ForecastBasis.ItemUdf)
             try { using var gw = factory.Create(c); udfFields = await gw.GetItemUdfFieldsAsync(ct); } catch { /* best-effort */ }
 
-        var (names, budget, actual, asOf, baseline) = await LoadBasisAsync(c, basis, udf, fy, refresh, ct);
+        var (names, budget, actual, asOf, baseline, error) = await LoadBasisAsync(c, basis, udf, fy, refresh, ct);
 
         var forecast = await db.Forecasts.AsNoTracking().Include(f => f.Lines)
             .FirstOrDefaultAsync(f => f.CompanyId == c.Id && f.FiscalYear == fy && f.Basis == basis && f.UdfName == udf, ct);
@@ -144,12 +153,12 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
             budget.GetValueOrDefault(code) ?? new decimal[12],
             actual.GetValueOrDefault(code) ?? new decimal[12])).ToList();
 
-        var current = today > cal.PeriodEnd(fy, 12) ? 13 : cal.PeriodOf(fy, today);
+        var current2 = today > cal.PeriodEnd(fy, 12) ? 13 : cal.PeriodOf(fy, today);
         var labels = Enumerable.Range(1, 12).Select(p => cal.PeriodLabel(fy, p)).ToArray();
         return new ForecastReport(c.Id, c.Currency, fy, years, basis, udf, udfFields.ToArray(),
             basis == ForecastBasis.Dimension && baseline != null, MemberLabelFor(basis, udf),
-            labels, current, ElapsedMonths(cal, fy, today), forecast != null, forecast?.UpdatedAt, asOf,
-            baseline?.Id, baseline is null ? null : $"{baseline.Name} · Rev {baseline.RevisionNo}", rows);
+            labels, current2, ElapsedMonths(cal, fy, today), forecast != null, forecast?.UpdatedAt, asOf,
+            baseline?.Id, baseline is null ? null : $"{baseline.Name} · Rev {baseline.RevisionNo}", rows, error);
     }
 
     private async Task<SalesForecast> EnsureForecastAsync(int companyId, int year, ForecastBasis basis, string udf, CancellationToken ct)
@@ -184,7 +193,7 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
         udf ??= "";
         var cal = new FiscalCalendar(c.FiscalYearStartMonth);
         var elapsed = ElapsedMonths(cal, year, DateTime.UtcNow.Date);
-        var (names, budget, actual, _, _) = await LoadBasisAsync(c, basis, udf, year, refresh, ct);
+        var (names, budget, actual, _, _, _) = await LoadBasisAsync(c, basis, udf, year, refresh, ct);
 
         bool CanEdit(string code) => basis != ForecastBasis.Dimension ? scope.IsAdmin : scope.Has(c.Id, code);
         var members = names.Keys.Concat(budget.Keys).Concat(actual.Keys)

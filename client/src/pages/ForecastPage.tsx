@@ -138,13 +138,16 @@ export default function ForecastPage({ year }: { year?: number }) {
       </div>
 
       {error && <div className="banner error">{error}</div>}
+      {report?.actualsError && <div className="banner warn">Couldn't read actual sales from SAP B1: {report.actualsError}</div>}
       {!report && !error && <div className="empty">Loading forecast…</div>}
       {report && report.rows.length === 0 && !loading && (
         <div className="panel"><Empty>
           <strong>Nothing to forecast here</strong>
-          <span>{basis === 'Dimension'
-            ? 'Create a budget for this year, or ask an administrator to assign you a cost center.'
-            : `No ${mll} sales found for FY ${fy}. Switch the company to SAP B1, or pick another basis.`}</span>
+          <span>{report.actualsError
+            ? `Reading sales for FY ${fy} failed — see the message above. For item/item-group/UDF bases, SAP B1 Service Layer must allow OINV, INV1, ORIN, RIN1, OITM and OITB in its SQL whitelist (b1s_sqltable.conf).`
+            : basis === 'Dimension'
+              ? 'Create a budget for this year, or ask an administrator to assign you a cost center.'
+              : `No ${mll} sales found for FY ${fy}. Pick a year that has posted sales invoices, or try another basis.`}</span>
         </Empty></div>
       )}
 
