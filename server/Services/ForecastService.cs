@@ -244,12 +244,30 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
         return actual;
     }
 
+    /// <summary>Per-month average of the previous <paramref name="years"/> years' actual sales per member
+    /// (year-1 … year-N). A member's months are averaged only over the prior years in which it actually sold.</summary>
+    private async Task<Dictionary<string, decimal[]>> PriorYearsAverageAsync(Company c, ForecastBasis basis, string udf, int year, int years, bool refresh, CancellationToken ct)
+    {
+        var perYear = new List<Dictionary<string, decimal[]>>();
+        for (var k = 1; k <= years; k++) perYear.Add(await ActualsByMemberAsync(c, basis, udf, year - k, refresh, ct));
+        var avg = new Dictionary<string, decimal[]>();
+        foreach (var code in perYear.SelectMany(d => d.Keys).Distinct())
+        {
+            var arr = new decimal[12];
+            var yearsWith = 0;
+            foreach (var yd in perYear)
+                if (yd.TryGetValue(code, out var a) && a.Any(v => v != 0)) { yearsWith++; for (var i = 0; i < 12; i++) arr[i] += a[i]; }
+            if (yearsWith > 0) { for (var i = 0; i < 12; i++) arr[i] = Math.Round(arr[i] / yearsWith, 2); avg[code] = arr; }
+        }
+        return avg;
+    }
+
     /// <summary>
     /// Seed editable members with a forecasting <paramref name="method"/>: elapsed months are always the real
-    /// actuals; the remaining months are projected (budget, run-rate, prior-year growth, seasonal, or linear trend).
-    /// Overwrites those members. Returns the members written.
+    /// actuals; the remaining months are projected (budget, run-rate, prior-year growth, seasonal, linear trend,
+    /// or the average of the previous <paramref name="years"/> years). Overwrites those members; returns those written.
     /// </summary>
-    public async Task<List<string>> SeedAsync(Company c, int year, ForecastBasis basis, string? udf, ForecastMethod method, decimal growthPct, Scope scope, bool refresh, CancellationToken ct)
+    public async Task<List<string>> SeedAsync(Company c, int year, ForecastBasis basis, string? udf, ForecastMethod method, decimal growthPct, int years, Scope scope, bool refresh, CancellationToken ct)
     {
         RequireBasisAccess(basis, scope);
         udf ??= "";
@@ -258,9 +276,17 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
         var (names, budget, actual, _, _, _) = await LoadBasisAsync(c, basis, udf, year, refresh, ct);
         // Budget projection only makes sense on the dimension basis; elsewhere fall back to run-rate.
         if (method == ForecastMethod.Budget && basis != ForecastBasis.Dimension) method = ForecastMethod.RunRate;
-        // Prior-year actuals are only needed by the trend/growth methods.
-        var prior = method is ForecastMethod.PriorYearGrowth or ForecastMethod.SeasonalRunRate
-            ? await ActualsByMemberAsync(c, basis, udf, year - 1, refresh, ct) : new();
+
+        // Prior-year baseline: the average of the previous X years, or just last year, per the method.
+        var prior = new Dictionary<string, decimal[]>();
+        var projMethod = method;
+        if (method == ForecastMethod.PriorYearsAverage)
+        {
+            prior = await PriorYearsAverageAsync(c, basis, udf, year, Math.Clamp(years, 1, 10), refresh, ct);
+            projMethod = ForecastMethod.PriorYearGrowth;   // project the averaged array exactly like prior-year growth
+        }
+        else if (method is ForecastMethod.PriorYearGrowth or ForecastMethod.SeasonalRunRate)
+            prior = await ActualsByMemberAsync(c, basis, udf, year - 1, refresh, ct);
 
         bool CanEdit(string code) => basis != ForecastBasis.Dimension ? scope.IsAdmin : scope.Has(c.Id, code);
         var members = names.Keys.Concat(budget.Keys).Concat(actual.Keys).Concat(prior.Keys)
@@ -276,7 +302,7 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
                 actual.GetValueOrDefault(code) ?? new decimal[12],
                 prior.GetValueOrDefault(code) ?? new decimal[12],
                 budget.GetValueOrDefault(code) ?? new decimal[12],
-                elapsed, method, growthPct);
+                elapsed, projMethod, growthPct);
             if (amounts.All(x => x == 0) && !existing.ContainsKey(code)) continue;
             if (!existing.TryGetValue(code, out var line)) db.ForecastLines.Add(line = new SalesForecastLine { ForecastId = f.Id, BrandCode = code });
             line.Amounts = amounts;

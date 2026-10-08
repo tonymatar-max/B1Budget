@@ -148,9 +148,11 @@ public enum ForecastBasis { Dimension, ItemGroup, Item, ItemUdf }
 /// <item><see cref="PriorYearGrowth"/> — last year's same month × (1 + growth%).</item>
 /// <item><see cref="SeasonalRunRate"/> — last year's monthly shape scaled by this year's pace (YTD ÷ last-year YTD).</item>
 /// <item><see cref="LinearTrend"/> — straight-line regression through the elapsed months, extrapolated.</item>
+/// <item><see cref="PriorYearsAverage"/> — the per-month average of the previous X years × (1 + growth%); ideal for a
+///   whole future year (no elapsed months) or for filling the remaining months from a multi-year normal.</item>
 /// </list>
 /// </summary>
-public enum ForecastMethod { Budget, RunRate, PriorYearGrowth, SeasonalRunRate, LinearTrend }
+public enum ForecastMethod { Budget, RunRate, PriorYearGrowth, SeasonalRunRate, LinearTrend, PriorYearsAverage }
 
 /// <summary>
 /// A living sales forecast for one company, fiscal year and <see cref="Basis"/>: expected sales per member

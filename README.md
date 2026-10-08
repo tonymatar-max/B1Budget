@@ -99,6 +99,7 @@ A **sales forecast** is a forward-looking estimate of sales (revenue) per cost c
   - **Prior year + growth %** — last year's same month × (1 + growth%).
   - **Seasonal** — last year's monthly shape scaled by this year's pace (YTD ÷ last-year YTD).
   - **Linear trend** — straight-line regression through the elapsed months.
+  - **Previous years average** — the per-month average of the previous **X** years × (1 + growth%). Ideal for forecasting a whole **future** year (no elapsed months): pick the year (type it in the year box), choose how many years to average, and Seed. A member's months are averaged only over the prior years it actually sold in.
   Pipeline/CRM-based methods (weighted opportunities, sales-cycle) and ML/TDA models are out of scope — the app has no deal pipeline, and these historic/trend methods cover budgeting needs.
 - Tiles show full-year forecast (plus budget vs budget on the cost-center basis) and actual sales to date; each member expands to compare its forecast against actual (and budget) month by month.
 - One forecast is kept per company, fiscal year **and basis** (and UDF field), so different breakdowns coexist. The cost-center budget baseline is the year's latest non-superseded approved revision.

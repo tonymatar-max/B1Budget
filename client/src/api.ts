@@ -185,7 +185,7 @@ export interface BvaReport {
 }
 
 export type ForecastBasis = 'Dimension' | 'ItemGroup' | 'Item' | 'ItemUdf'
-export type ForecastMethod = 'Budget' | 'RunRate' | 'PriorYearGrowth' | 'SeasonalRunRate' | 'LinearTrend'
+export type ForecastMethod = 'Budget' | 'RunRate' | 'PriorYearGrowth' | 'SeasonalRunRate' | 'LinearTrend' | 'PriorYearsAverage'
 export interface ForecastBrandRow {
   brand: string
   brandName: string
@@ -389,12 +389,13 @@ export const api = {
     if (udf) q.set('udf', udf)
     return request<void>('PUT', `/forecast/${year}/brands/${encodeURIComponent(brand)}${q.toString() ? `?${q}` : ''}`, { amounts })
   },
-  seedForecast: (year: number, basis: ForecastBasis = 'Dimension', udf = '', method: ForecastMethod = 'Budget', growth = 0, refresh = false) => {
+  seedForecast: (year: number, basis: ForecastBasis = 'Dimension', udf = '', method: ForecastMethod = 'Budget', growth = 0, years = 3, refresh = false) => {
     const q = new URLSearchParams()
     if (basis !== 'Dimension') q.set('basis', basis)
     if (udf) q.set('udf', udf)
     q.set('method', method)
     if (growth) q.set('growth', String(growth))
+    if (method === 'PriorYearsAverage') q.set('years', String(years))
     if (refresh) q.set('refresh', 'true')
     return request<{ seeded: number; brands: string[] }>('POST', `/forecast/${year}/seed${q.toString() ? `?${q}` : ''}`)
   },

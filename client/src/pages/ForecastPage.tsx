@@ -14,9 +14,10 @@ const BASES: { value: ForecastBasis; label: string }[] = [
   { value: 'ItemUdf', label: 'Item UDF' },
 ]
 
-const METHODS: { value: ForecastMethod; label: string; needsGrowth?: boolean; dimOnly?: boolean; hint: string }[] = [
+const METHODS: { value: ForecastMethod; label: string; needsGrowth?: boolean; needsYears?: boolean; dimOnly?: boolean; hint: string }[] = [
   { value: 'Budget', label: 'Budget', dimOnly: true, hint: 'Remaining months = the sales budget' },
   { value: 'RunRate', label: 'Run-rate (YTD × 12)', hint: 'Remaining months = the year-to-date monthly average' },
+  { value: 'PriorYearsAverage', label: 'Previous years average', needsGrowth: true, needsYears: true, hint: 'Months = the per-month average of the previous X years × (1 + growth%); fills a whole future year' },
   { value: 'PriorYearGrowth', label: 'Prior year + growth %', needsGrowth: true, hint: "Remaining months = last year's same month × (1 + growth%)" },
   { value: 'SeasonalRunRate', label: 'Seasonal (last-year shape)', hint: "Remaining months = last year's shape scaled by this year's pace" },
   { value: 'LinearTrend', label: 'Linear trend', hint: 'Remaining months = straight-line regression through the elapsed months' },
@@ -28,6 +29,7 @@ export default function ForecastPage({ year }: { year?: number }) {
   const [udf, setUdf] = useState('')
   const [method, setMethod] = useState<ForecastMethod>('Budget')
   const [growth, setGrowth] = useState(5)
+  const [avgYears, setAvgYears] = useState(3)
   const [yearText, setYearText] = useState('')
   const [yearSel, setYearSel] = useState<number | undefined>(year)
   const [report, setReport] = useState<ForecastReport | null>(null)
@@ -101,7 +103,7 @@ export default function ForecastPage({ year }: { year?: number }) {
     if (dirty.size && !confirm(`Seeding overwrites your rows (elapsed months = actuals; ${md.hint.toLowerCase()}). Unsaved edits will be lost. Continue?`)) return
     setSeeding(true)
     try {
-      const r = await api.seedForecast(fy, basis, udf, method, growth, true)
+      const r = await api.seedForecast(fy, basis, udf, method, growth, avgYears, true)
       setToast({ kind: 'success', text: r.seeded ? `Seeded ${r.seeded} ${mll}${r.seeded > 1 ? 's' : ''} · ${md.label}.` : 'Nothing to seed — no actuals or prior-year data for these members.' })
       await load()
     } catch (e) { setToast({ kind: 'error', text: (e as Error).message }) } finally { setSeeding(false) }
@@ -160,8 +162,15 @@ export default function ForecastPage({ year }: { year?: number }) {
               title={METHODS.find(m => m.value === method)?.hint}>
               {METHODS.filter(m => !m.dimOnly || hasBudget).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
+            {METHODS.find(m => m.value === method)?.needsYears && (
+              <label className="row" style={{ gap: 4, flexWrap: 'nowrap' }} title="How many previous years to average">
+                <input type="number" min={1} max={10} value={avgYears} onChange={e => setAvgYears(Math.min(10, Math.max(1, Number(e.target.value) || 1)))}
+                  style={{ width: 52 }} aria-label="Years to average" />
+                <span className="muted small">yrs</span>
+              </label>
+            )}
             {METHODS.find(m => m.value === method)?.needsGrowth && (
-              <label className="row" style={{ gap: 4, flexWrap: 'nowrap' }} title="Year-over-year growth applied to last year">
+              <label className="row" style={{ gap: 4, flexWrap: 'nowrap' }} title="Year-over-year growth applied to the baseline">
                 <input type="number" step="0.5" value={growth} onChange={e => setGrowth(Number(e.target.value) || 0)}
                   style={{ width: 64 }} aria-label="Growth percent" />
                 <span className="muted small">% growth</span>
