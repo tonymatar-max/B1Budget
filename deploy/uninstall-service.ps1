@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-  Stop and remove the Nexus B1 Budget Windows service. Run from an ELEVATED PowerShell.
+  Stop and remove the Cobalt B1 Budget Windows service. Run from an ELEVATED PowerShell.
   The published files and the data folder are left in place.
 
 .PARAMETER Name
-  Windows service name. Default: NexusB1Budget
+  Windows service name. Default: CobaltB1Budget
 #>
 param(
-  [string]$Name = "NexusB1Budget"
+  [string]$Name = "CobaltB1Budget"
 )
 $ErrorActionPreference = "Stop"
 

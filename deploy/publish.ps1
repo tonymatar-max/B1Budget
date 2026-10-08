@@ -9,13 +9,13 @@
   (which binds http://localhost:5140) and the built UI.
 
 .PARAMETER Dest
-  Where to publish. Default: C:\NexusB1Budget
+  Where to publish. Default: C:\CobaltB1Budget
 
 .EXAMPLE
-  ./deploy/publish.ps1 -Dest C:\NexusB1Budget
+  ./deploy/publish.ps1 -Dest C:\CobaltB1Budget
 #>
 param(
-  [string]$Dest = "C:\NexusB1Budget"
+  [string]$Dest = "C:\CobaltB1Budget"
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot   # repo root (parent of deploy\)

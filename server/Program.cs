@@ -13,8 +13,8 @@ var builder = WebApplication.CreateBuilder(args);
 // Run under the Windows Service Control Manager when launched as a service (no-op when run from a console),
 // so `sc start` works and the service reports Running/Stopped correctly. UseWindowsService also points the
 // content root at the executable's folder instead of C:\Windows\System32, which keeps `data` next to the app.
-builder.Host.UseWindowsService(o => o.ServiceName = "Nexus B1 Budget");
-builder.Logging.AddEventLog(o => o.SourceName = "Nexus B1 Budget");
+builder.Host.UseWindowsService(o => o.ServiceName = "Cobalt B1 Budget");
+builder.Logging.AddEventLog(o => o.SourceName = "Cobalt B1 Budget");
 
 var dataDir = Path.Combine(builder.Environment.ContentRootPath, "data");
 Directory.CreateDirectory(dataDir);
@@ -24,7 +24,9 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 
 builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlite($"Data Source={Path.Combine(dataDir, "budget.db")}"));
-builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys")));
+// Pin the DataProtection application name so encrypted SL passwords survive moving or renaming the app folder
+// (the discriminator no longer depends on the content-root path). Changing this value invalidates stored secrets.
+builder.Services.AddDataProtection().SetApplicationName("CobaltB1Budget").PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDir, "keys")));
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<GatewayFactory>();
@@ -43,7 +45,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(o =>
     {
-        o.Cookie.Name = "nexus_budget_auth";
+        o.Cookie.Name = "cobalt_budget_auth";
         o.Cookie.HttpOnly = true;
         o.Cookie.SameSite = SameSiteMode.Strict;
         o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;

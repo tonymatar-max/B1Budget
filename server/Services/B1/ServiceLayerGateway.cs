@@ -50,7 +50,7 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
     {
         try
         {
-            await sl.EnsureSqlQueryAsync("NXBGT_COA", "Nexus Budget P&L accounts", AccountsSql, ct);
+            await sl.EnsureSqlQueryAsync("NXBGT_COA", "Cobalt Budget P&L accounts", AccountsSql, ct);
             var rows = await sl.RunSqlQueryAsync("NXBGT_COA", new Dictionary<string, string>(), ct);
             return rows.Select(r => new AccountDto(
                 Str(r, "AcctCode"), Str(r, "AcctName"),
@@ -90,7 +90,7 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
     public async Task<List<ActualRow>> GetActualsAsync(int dimension, DateTime from, DateTime to, CancellationToken ct)
     {
         var code = $"NXBGT_ACT{dimension}";
-        await sl.EnsureSqlQueryAsync(code, $"Nexus Budget actuals (dim {dimension})", ActualsSql(dimension), ct);
+        await sl.EnsureSqlQueryAsync(code, $"Cobalt Budget actuals (dim {dimension})", ActualsSql(dimension), ct);
         var rows = await sl.RunSqlQueryAsync(code, new Dictionary<string, string>
         {
             ["fromDate"] = $"'{from:yyyy-MM-dd}'", ["toDate"] = $"'{to:yyyy-MM-dd}'",
@@ -102,7 +102,7 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
     public async Task<JsonObject> DiagnoseAsync(int dimension, DateTime from, DateTime to, CancellationToken ct)
     {
         var code = $"NXBGT_ACT{dimension}";
-        await sl.EnsureSqlQueryAsync(code, $"Nexus Budget actuals (dim {dimension})", ActualsSql(dimension), ct);
+        await sl.EnsureSqlQueryAsync(code, $"Cobalt Budget actuals (dim {dimension})", ActualsSql(dimension), ct);
         var stored = await sl.GetAsync($"SQLQueries('{code}')", ct);
         var rows = await sl.RunSqlQueryAsync(code, new Dictionary<string, string>
         {
@@ -129,7 +129,7 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
     {
         var noBrand = string.IsNullOrEmpty(brand);
         var code = noBrand ? $"NXBGT_JEN{dimension}" : $"NXBGT_JE{dimension}";
-        await sl.EnsureSqlQueryAsync(code, $"Nexus Budget drill-down (dim {dimension})", noBrand ? LinesNoBrandSql(dimension) : LinesSql(dimension), ct);
+        await sl.EnsureSqlQueryAsync(code, $"Cobalt Budget drill-down (dim {dimension})", noBrand ? LinesNoBrandSql(dimension) : LinesSql(dimension), ct);
         var p = new Dictionary<string, string>
         {
             ["acct"] = Quote(account), ["fromDate"] = $"'{from:yyyy-MM-dd}'", ["toDate"] = $"'{to:yyyy-MM-dd}'",
@@ -173,7 +173,7 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
                 return groups.Select(g => new ForecastMemberDto(Str(g, "Number"), Str(g, "GroupName"))).ToList();
             case ForecastBasis.ItemUdf:
                 var u = RequireUdf(udf);
-                await sl.EnsureSqlQueryAsync("NXBGT_UDFVAL", "Nexus Budget UDF values",
+                await sl.EnsureSqlQueryAsync("NXBGT_UDFVAL", "Cobalt Budget UDF values",
                     $"SELECT DISTINCT T0.{u} AS Val FROM OITM T0 WHERE T0.{u} IS NOT NULL AND T0.{u} <> ''", ct);
                 var vals = await sl.RunSqlQueryAsync("NXBGT_UDFVAL", new Dictionary<string, string>(), ct);
                 return vals.Select(v => Str(v, "Val")).Where(s => s.Length > 0).Distinct()
@@ -205,7 +205,7 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
         var sql = Branch("INV1", "OINV", 1) + " UNION ALL " + Branch("RIN1", "ORIN", -1);
 
         var qcode = $"NXBGT_SALE_{code}";
-        await sl.EnsureSqlQueryAsync(qcode, $"Nexus Budget sales by member ({code})", sql, ct);
+        await sl.EnsureSqlQueryAsync(qcode, $"Cobalt Budget sales by member ({code})", sql, ct);
         var rows = await sl.RunSqlQueryAsync(qcode, new Dictionary<string, string>
         {
             ["fromDate"] = $"'{from:yyyy-MM-dd}'", ["toDate"] = $"'{to:yyyy-MM-dd}'",

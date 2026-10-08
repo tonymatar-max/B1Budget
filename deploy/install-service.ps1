@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-  Install (or reinstall) Nexus B1 Budget as a Windows service. Run from an ELEVATED PowerShell.
+  Install (or reinstall) Cobalt B1 Budget as a Windows service. Run from an ELEVATED PowerShell.
 
 .PARAMETER Dest
-  The published folder produced by publish.ps1. Default: C:\NexusB1Budget
+  The published folder produced by publish.ps1. Default: C:\CobaltB1Budget
 
 .PARAMETER Name
-  Windows service name. Default: NexusB1Budget
+  Windows service name. Default: CobaltB1Budget
 
 .PARAMETER Account
   Service log-on account. Default: LocalSystem. For a domain/local account pass e.g. ".\svc_budget"
@@ -20,13 +20,13 @@
   e.g. to ship demo data. Existing data is backed up first.
 
 .EXAMPLE
-  ./deploy/install-service.ps1 -Dest C:\NexusB1Budget
-  ./deploy/install-service.ps1 -Dest C:\NexusB1Budget -DataFrom "C:\Claude\b1-budget\server\Data"
+  ./deploy/install-service.ps1 -Dest C:\CobaltB1Budget
+  ./deploy/install-service.ps1 -Dest C:\CobaltB1Budget -DataFrom "C:\Claude\b1-budget\server\Data"
 #>
 param(
-  [string]$Dest    = "C:\NexusB1Budget",
-  [string]$Name    = "NexusB1Budget",
-  [string]$Display = "Nexus B1 Budget",
+  [string]$Dest    = "C:\CobaltB1Budget",
+  [string]$Name    = "CobaltB1Budget",
+  [string]$Display = "Cobalt B1 Budget",
   [string]$Account = "LocalSystem",
   [string]$Password,
   [string]$DataFrom
@@ -62,7 +62,7 @@ $params = @{
   Name           = $Name
   BinaryPathName = "`"$exe`""
   DisplayName    = $Display
-  Description    = "Nexus B1 Budget API and web UI (http://localhost:5140)."
+  Description    = "Cobalt B1 Budget API and web UI (http://localhost:5140)."
   StartupType    = "Automatic"
 }
 if ($Account -ne "LocalSystem") {

@@ -11,19 +11,19 @@
   Source data folder that holds budget.db (and a keys\ folder). Default: the dev server's data.
 
 .PARAMETER Dest
-  The installed service's data folder. Default: C:\NexusB1Budget\data
+  The installed service's data folder. Default: C:\CobaltB1Budget\data
 
 .PARAMETER Name
-  Windows service name. Default: NexusB1Budget
+  Windows service name. Default: CobaltB1Budget
 
 .EXAMPLE
   ./deploy/seed-demo-data.ps1
-  ./deploy/seed-demo-data.ps1 -From "C:\Claude\b1-budget\server\Data" -Dest "C:\NexusB1Budget\data"
+  ./deploy/seed-demo-data.ps1 -From "C:\Claude\b1-budget\server\Data" -Dest "C:\CobaltB1Budget\data"
 #>
 param(
   [string]$From = "C:\Claude\b1-budget\server\Data",
-  [string]$Dest = "C:\NexusB1Budget\data",
-  [string]$Name = "NexusB1Budget"
+  [string]$Dest = "C:\CobaltB1Budget\data",
+  [string]$Name = "CobaltB1Budget"
 )
 $ErrorActionPreference = "Stop"
 

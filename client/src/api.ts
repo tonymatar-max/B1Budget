@@ -278,7 +278,7 @@ export interface GroupReport {
 
 // ---------------------------------------------------------------- active company
 
-const COMPANY_KEY = 'nexus-budget.company'
+const COMPANY_KEY = 'cobalt-budget.company'
 let companyId: number | null = (() => {
   try { const v = localStorage.getItem(COMPANY_KEY); return v ? Number(v) : null } catch { return null }
 })()

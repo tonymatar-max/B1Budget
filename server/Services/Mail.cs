@@ -178,7 +178,7 @@ public class Notifier(AppDbContext db, MailQueue queue)
 
     private static string E(string s) => WebUtility.HtmlEncode(s);
 
-    /// <summary>Simple, e-mail-client-safe HTML (tables + inline styles) in the Nexus colours.</summary>
+    /// <summary>Simple, e-mail-client-safe HTML (tables + inline styles) in the Cobalt colours.</summary>
     public static string Template(string headline, string introHtml, string context, string? comment, string button, string link) => $"""
         <div style="background:#f5f6fb;padding:24px 12px;font-family:'Segoe UI',Arial,sans-serif;color:#1b1f2e">
           <table role="presentation" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e3e6f0;border-radius:8px">
