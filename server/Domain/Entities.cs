@@ -141,6 +141,18 @@ public class PushItem
 public enum ForecastBasis { Dimension, ItemGroup, Item, ItemUdf }
 
 /// <summary>
+/// How Seed projects the not-yet-elapsed months of a sales forecast (elapsed months always come from actuals):
+/// <list type="bullet">
+/// <item><see cref="Budget"/> — the sales budget for the remaining months (dimension basis only).</item>
+/// <item><see cref="RunRate"/> — year-to-date average (YTD ÷ months elapsed) carried flat to year end.</item>
+/// <item><see cref="PriorYearGrowth"/> — last year's same month × (1 + growth%).</item>
+/// <item><see cref="SeasonalRunRate"/> — last year's monthly shape scaled by this year's pace (YTD ÷ last-year YTD).</item>
+/// <item><see cref="LinearTrend"/> — straight-line regression through the elapsed months, extrapolated.</item>
+/// </list>
+/// </summary>
+public enum ForecastMethod { Budget, RunRate, PriorYearGrowth, SeasonalRunRate, LinearTrend }
+
+/// <summary>
 /// A living sales forecast for one company, fiscal year and <see cref="Basis"/>: expected sales per member
 /// (cost center, item group, item or UDF value) per month. One forecast per company+year+basis(+UDF). Owners
 /// re-estimate their own members (item-based bases are finance/admin only). App-only — never pushed to SAP B1.

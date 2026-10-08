@@ -536,11 +536,13 @@ public static class Endpoints
             return Results.Ok();
         });
 
-        api.MapPost("/forecast/{year:int}/seed", async (int year, string? basis, string? udf, bool? refresh, ForecastService forecast, AccessService access, CancellationToken ct) =>
+        api.MapPost("/forecast/{year:int}/seed", async (int year, string? basis, string? udf, string? method, decimal? growth, bool? refresh,
+            ForecastService forecast, AccessService access, CancellationToken ct) =>
         {
             var c = await access.CompanyAsync();
             var scope = await access.ScopeAsync();
-            var seeded = await forecast.SeedAsync(c, year, ParseBasis(basis), udf, scope, refresh ?? false, ct);
+            var m = Enum.TryParse<ForecastMethod>(method, true, out var fm) ? fm : ForecastMethod.Budget;
+            var seeded = await forecast.SeedAsync(c, year, ParseBasis(basis), udf, m, growth ?? 0m, scope, refresh ?? false, ct);
             return Results.Ok(new { seeded = seeded.Count, brands = seeded });
         });
 

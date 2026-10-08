@@ -8,6 +8,54 @@ namespace B1Budget.Api.Services;
 public record ForecastBrandRow(string Brand, string BrandName, bool CanEdit,
     decimal[] Forecast, decimal[] Budget, decimal[] Actual);
 
+/// <summary>Projects the not-yet-elapsed months of one member from its current-year actuals, last year's actuals
+/// and (dimension basis) its budget. Elapsed months are always the real actuals.</summary>
+public static class ForecastMath
+{
+    public static decimal[] Project(decimal[] cur, decimal[] prior, decimal[] budget, int elapsed, ForecastMethod method, decimal growthPct)
+    {
+        var g = growthPct / 100m;
+        var res = new decimal[12];
+        for (var i = 0; i < Math.Min(elapsed, 12); i++) res[i] = cur[i];
+
+        decimal ytd = 0; for (var i = 0; i < Math.Min(elapsed, 12); i++) ytd += cur[i];
+        var runRate = elapsed > 0 ? ytd / elapsed : 0m;
+        decimal priorYtd = 0; for (var i = 0; i < Math.Min(elapsed, 12); i++) priorYtd += prior[i];
+        var priorSum = prior.Sum();
+        var priorAvg = priorSum / 12m;
+        var pace = priorYtd != 0 ? ytd / priorYtd : 0m;
+
+        // Straight-line regression through the elapsed actual points (x = 1..elapsed): y = slope·x + intercept.
+        decimal slope = 0, intercept = 0;
+        if (elapsed >= 2)
+        {
+            decimal n = elapsed, sx = 0, sy = 0, sxx = 0, sxy = 0;
+            for (var i = 0; i < elapsed; i++) { decimal x = i + 1, y = cur[i]; sx += x; sy += y; sxx += x * x; sxy += x * y; }
+            var denom = n * sxx - sx * sx;
+            slope = denom != 0 ? (n * sxy - sx * sy) / denom : 0m;
+            intercept = (sy - slope * sx) / n;
+        }
+
+        // When last year is empty, prior-based methods fall back to the run-rate (or a grown prior average when nothing elapsed).
+        var fallback = runRate > 0 ? runRate : priorAvg * (1 + g);
+
+        for (var i = elapsed; i < 12; i++)
+        {
+            var v = method switch
+            {
+                ForecastMethod.Budget => budget[i],
+                ForecastMethod.RunRate => runRate > 0 ? runRate : fallback,
+                ForecastMethod.PriorYearGrowth => priorSum != 0 ? prior[i] * (1 + g) : fallback,
+                ForecastMethod.SeasonalRunRate => priorYtd != 0 ? prior[i] * pace : (priorSum != 0 ? prior[i] * (1 + g) : fallback),
+                ForecastMethod.LinearTrend => elapsed >= 2 ? Math.Max(0m, slope * (i + 1) + intercept) : fallback,
+                _ => 0m,
+            };
+            res[i] = Math.Round(v, 2);
+        }
+        return res;
+    }
+}
+
 public record ForecastReport(int CompanyId, string Currency, int FiscalYear, int[] AvailableYears,
     ForecastBasis Basis, string Udf, string[] UdfFields, bool HasBudgetBaseline, string MemberLabel,
     string[] PeriodLabels, int CurrentPeriod, int ElapsedMonths, bool HasForecast, DateTime? UpdatedAt,
@@ -183,20 +231,39 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>Actual sales per member for a year (no budget/names) — used for the prior-year baseline of a projection.</summary>
+    private async Task<Dictionary<string, decimal[]>> ActualsByMemberAsync(Company c, ForecastBasis basis, string udf, int year, bool refresh, CancellationToken ct)
+    {
+        var actual = new Dictionary<string, decimal[]>();
+        try
+        {
+            if (basis == ForecastBasis.Dimension) { var (a, _) = await reports.SalesActualsByBrandAsync(c, year, refresh, ct); actual = a; }
+            else { var (byM, _) = await reports.SalesByMemberAsync(c, basis, udf, year, refresh, ct); foreach (var (code, (_, amt)) in byM) actual[code] = amt; }
+        }
+        catch { /* prior year is best-effort */ }
+        return actual;
+    }
+
     /// <summary>
-    /// Seed editable members: elapsed months from actual sales; remaining months from the sales budget
-    /// (dimension basis) or the elapsed-month run-rate (item bases, which have no budget). Overwrites those members.
+    /// Seed editable members with a forecasting <paramref name="method"/>: elapsed months are always the real
+    /// actuals; the remaining months are projected (budget, run-rate, prior-year growth, seasonal, or linear trend).
+    /// Overwrites those members. Returns the members written.
     /// </summary>
-    public async Task<List<string>> SeedAsync(Company c, int year, ForecastBasis basis, string? udf, Scope scope, bool refresh, CancellationToken ct)
+    public async Task<List<string>> SeedAsync(Company c, int year, ForecastBasis basis, string? udf, ForecastMethod method, decimal growthPct, Scope scope, bool refresh, CancellationToken ct)
     {
         RequireBasisAccess(basis, scope);
         udf ??= "";
         var cal = new FiscalCalendar(c.FiscalYearStartMonth);
         var elapsed = ElapsedMonths(cal, year, DateTime.UtcNow.Date);
         var (names, budget, actual, _, _, _) = await LoadBasisAsync(c, basis, udf, year, refresh, ct);
+        // Budget projection only makes sense on the dimension basis; elsewhere fall back to run-rate.
+        if (method == ForecastMethod.Budget && basis != ForecastBasis.Dimension) method = ForecastMethod.RunRate;
+        // Prior-year actuals are only needed by the trend/growth methods.
+        var prior = method is ForecastMethod.PriorYearGrowth or ForecastMethod.SeasonalRunRate
+            ? await ActualsByMemberAsync(c, basis, udf, year - 1, refresh, ct) : new();
 
         bool CanEdit(string code) => basis != ForecastBasis.Dimension ? scope.IsAdmin : scope.Has(c.Id, code);
-        var members = names.Keys.Concat(budget.Keys).Concat(actual.Keys)
+        var members = names.Keys.Concat(budget.Keys).Concat(actual.Keys).Concat(prior.Keys)
             .Where(code => !string.IsNullOrEmpty(code) && CanEdit(code)).Distinct().ToList();
 
         var f = await EnsureForecastAsync(c.Id, year, basis, udf, ct);
@@ -205,17 +272,11 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
         var seeded = new List<string>();
         foreach (var code in members)
         {
-            var b = budget.GetValueOrDefault(code) ?? new decimal[12];
-            var a = actual.GetValueOrDefault(code) ?? new decimal[12];
-            // Future fill: budget for the dimension basis; otherwise the average of the elapsed actual months.
-            decimal runRate = 0;
-            if (basis != ForecastBasis.Dimension && elapsed > 0)
-            {
-                decimal s = 0; for (var i = 0; i < elapsed; i++) s += a[i];
-                runRate = Math.Round(s / elapsed, 2);
-            }
-            var amounts = new decimal[12];
-            for (var i = 0; i < 12; i++) amounts[i] = i < elapsed ? a[i] : (basis == ForecastBasis.Dimension ? b[i] : runRate);
+            var amounts = ForecastMath.Project(
+                actual.GetValueOrDefault(code) ?? new decimal[12],
+                prior.GetValueOrDefault(code) ?? new decimal[12],
+                budget.GetValueOrDefault(code) ?? new decimal[12],
+                elapsed, method, growthPct);
             if (amounts.All(x => x == 0) && !existing.ContainsKey(code)) continue;
             if (!existing.TryGetValue(code, out var line)) db.ForecastLines.Add(line = new SalesForecastLine { ForecastId = f.Id, BrandCode = code });
             line.Amounts = amounts;
