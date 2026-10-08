@@ -509,27 +509,38 @@ public static class Endpoints
 
         // ------------------------------------------------------------ sales forecast
 
-        api.MapGet("/forecast", async (int? year, bool? refresh, ForecastService forecast, AccessService access, CancellationToken ct) =>
+        static ForecastBasis ParseBasis(string? s) =>
+            Enum.TryParse<ForecastBasis>(s, true, out var b) ? b : ForecastBasis.Dimension;
+
+        api.MapGet("/forecast", async (int? year, string? basis, string? udf, bool? refresh, ForecastService forecast, AccessService access, CancellationToken ct) =>
         {
             var c = await access.CompanyAsync();
             var scope = await access.ScopeAsync();
-            return Results.Ok(await forecast.GetAsync(c, year, refresh ?? false, scope, ct));
+            return Results.Ok(await forecast.GetAsync(c, year, ParseBasis(basis), udf, refresh ?? false, scope, ct));
         });
 
-        api.MapPut("/forecast/{year:int}/brands/{brand}", async (int year, string brand, SaveForecastLineRequest r,
+        // List the item user-defined fields (U_…) a forecast can be grouped by.
+        api.MapGet("/forecast/item-udfs", async (ForecastService _unused, GatewayFactory f, AccessService access, CancellationToken ct) =>
+        {
+            var c = await access.CompanyAsync();
+            (await access.ScopeAsync()).RequireAdmin();
+            using var gw = f.Create(c);
+            return Results.Ok(await gw.GetItemUdfFieldsAsync(ct));
+        });
+
+        api.MapPut("/forecast/{year:int}/brands/{brand}", async (int year, string brand, string? basis, string? udf, SaveForecastLineRequest r,
             ForecastService forecast, AccessService access, CancellationToken ct) =>
         {
             var c = await access.CompanyAsync();
-            (await access.ScopeAsync()).Require(c.Id, brand);
-            await forecast.SaveBrandAsync(c, year, brand, r.Amounts ?? new decimal[12], ct);
+            await forecast.SaveMemberAsync(c, year, ParseBasis(basis), udf, brand, r.Amounts ?? new decimal[12], await access.ScopeAsync(), ct);
             return Results.Ok();
         });
 
-        api.MapPost("/forecast/{year:int}/seed", async (int year, bool? refresh, ForecastService forecast, AccessService access, CancellationToken ct) =>
+        api.MapPost("/forecast/{year:int}/seed", async (int year, string? basis, string? udf, bool? refresh, ForecastService forecast, AccessService access, CancellationToken ct) =>
         {
             var c = await access.CompanyAsync();
             var scope = await access.ScopeAsync();
-            var seeded = await forecast.SeedAsync(c, year, scope, refresh ?? false, ct);
+            var seeded = await forecast.SeedAsync(c, year, ParseBasis(basis), udf, scope, refresh ?? false, ct);
             return Results.Ok(new { seeded = seeded.Count, brands = seeded });
         });
 

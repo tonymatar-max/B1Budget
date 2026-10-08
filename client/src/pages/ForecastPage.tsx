@@ -1,12 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, type ForecastReport } from '../api'
+import { api, type ForecastReport, type ForecastBasis } from '../api'
+import { useAuth } from '../auth'
 import { fmt, parseAmount, pct, short, sum, when } from '../format'
 import { Empty, useToast } from '../ui'
 
 /** Favourable sales variance is positive: forecasting/selling more than budget is good. */
 const vsBudget = (forecast: number, budget: number) => forecast - budget
 
+const BASES: { value: ForecastBasis; label: string }[] = [
+  { value: 'Dimension', label: 'Cost center (dimension)' },
+  { value: 'ItemGroup', label: 'Item group' },
+  { value: 'Item', label: 'Item' },
+  { value: 'ItemUdf', label: 'Item UDF' },
+]
+
 export default function ForecastPage({ year }: { year?: number }) {
+  const auth = useAuth()
+  const [basis, setBasis] = useState<ForecastBasis>('Dimension')
+  const [udf, setUdf] = useState('')
+  const [yearSel, setYearSel] = useState<number | undefined>(year)
   const [report, setReport] = useState<ForecastReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -18,37 +30,38 @@ export default function ForecastPage({ year }: { year?: number }) {
   const [seeding, setSeeding] = useState(false)
   const [, setToast, toastNode] = useToast()
 
-  const load = async (y?: number, refresh = false) => {
+  const load = async (refresh = false) => {
     setLoading(true); setError(null)
     try {
-      const r = await api.forecast(y ?? year, refresh)
+      const r = await api.forecast(yearSel, basis, udf, refresh)
+      // Item-UDF basis needs a field chosen: default to the first one B1 offers, which reloads.
+      if (r.basis === 'ItemUdf' && !udf && r.udfFields.length) { setUdf(r.udfFields[0]); return }
       setReport(r)
+      setYearSel(r.fiscalYear)
       setDraft(Object.fromEntries(r.rows.map(row => [row.brand, [...row.forecast]])))
-      setDirty(new Set()); setEditing({})
+      setDirty(new Set()); setEditing({}); setExpanded(new Set())
     } catch (e) { setError((e as Error).message) } finally { setLoading(false) }
   }
-  useEffect(() => { load() }, [year])
+  useEffect(() => { load() }, [basis, udf, yearSel])
 
   const fy = report?.fiscalYear
+  const hasBudget = report?.hasBudgetBaseline ?? false
+  const memberLabel = report?.memberLabel ?? 'Cost center'
+  // Lowercase for mid-sentence use — but a UDF field name (e.g. "U_Brand") stays as-is.
+  const mll = basis === 'ItemUdf' ? memberLabel : memberLabel.toLowerCase()
   const forecastOf = (b: string) => draft[b] ?? report?.rows.find(r => r.brand === b)?.forecast ?? Array(12).fill(0)
+
+  const changeBasis = (b: ForecastBasis) => { setReport(null); setUdf(''); setBasis(b) }
 
   const setCell = (brand: string, i: number, raw: string) => {
     setEditing(e => ({ ...e, [`${brand}:${i}`]: raw }))
     const n = parseAmount(raw)
     if (n === null) return
-    setDraft(d => {
-      const next = [...(d[brand] ?? forecastOf(brand))]
-      next[i] = n
-      return { ...d, [brand]: next }
-    })
+    setDraft(d => { const next = [...(d[brand] ?? forecastOf(brand))]; next[i] = n; return { ...d, [brand]: next } })
     setDirty(s => new Set(s).add(brand))
   }
-  const focusCell = (brand: string, i: number) => setEditing(e => {
-    const v = forecastOf(brand)[i]
-    return { ...e, [`${brand}:${i}`]: v ? String(v) : '' }
-  })
+  const focusCell = (brand: string, i: number) => setEditing(e => { const v = forecastOf(brand)[i]; return { ...e, [`${brand}:${i}`]: v ? String(v) : '' } })
   const commitCell = (brand: string, i: number) => setEditing(e => { const n = { ...e }; delete n[`${brand}:${i}`]; return n })
-  // Formatted (with thousands separators) when idle; the raw number while the cell is being edited.
   const cellValue = (brand: string, i: number) => {
     const k = `${brand}:${i}`
     if (k in editing) return editing[k]
@@ -60,20 +73,21 @@ export default function ForecastPage({ year }: { year?: number }) {
     if (!fy || dirty.size === 0) return
     setSaving(true)
     try {
-      for (const brand of dirty) await api.saveForecastLine(fy, brand, forecastOf(brand))
-      setToast({ kind: 'success', text: `Saved ${dirty.size} cost center${dirty.size > 1 ? 's' : ''}.` })
-      await load(fy)
+      for (const brand of dirty) await api.saveForecastLine(fy, brand, forecastOf(brand), basis, udf)
+      setToast({ kind: 'success', text: `Saved ${dirty.size} ${mll}${dirty.size > 1 ? 's' : ''}.` })
+      await load()
     } catch (e) { setToast({ kind: 'error', text: (e as Error).message }) } finally { setSaving(false) }
   }
 
   const seed = async () => {
     if (!fy) return
-    if (dirty.size && !confirm('Seeding overwrites your cost centers with actuals (elapsed months) + budget (remaining). Unsaved edits will be lost. Continue?')) return
+    const how = hasBudget ? 'actuals (elapsed months) + budget (remaining)' : 'actuals (elapsed months) + run-rate (remaining)'
+    if (dirty.size && !confirm(`Seeding overwrites your rows with ${how}. Unsaved edits will be lost. Continue?`)) return
     setSeeding(true)
     try {
-      const r = await api.seedForecast(fy, true)
-      setToast({ kind: 'success', text: r.seeded ? `Seeded ${r.seeded} cost center${r.seeded > 1 ? 's' : ''} from actuals + budget.` : 'Nothing to seed — no budget or actuals for your cost centers.' })
-      await load(fy)
+      const r = await api.seedForecast(fy, basis, udf, true)
+      setToast({ kind: 'success', text: r.seeded ? `Seeded ${r.seeded} ${mll}${r.seeded > 1 ? 's' : ''}.` : 'Nothing to seed — no actuals or budget for these members.' })
+      await load()
     } catch (e) { setToast({ kind: 'error', text: (e as Error).message }) } finally { setSeeding(false) }
   }
 
@@ -81,22 +95,13 @@ export default function ForecastPage({ year }: { year?: number }) {
     const rows = report?.rows ?? []
     const elapsed = report?.elapsedMonths ?? 0
     let forecast = 0, budget = 0, actual = 0
-    for (const row of rows) {
-      forecast += sum(forecastOf(row.brand))
-      budget += sum(row.budget)
-      actual += sum(row.actual, 0, elapsed)
-    }
+    for (const row of rows) { forecast += sum(forecastOf(row.brand)); budget += sum(row.budget); actual += sum(row.actual, 0, elapsed) }
     return { forecast, budget, actual }
   }, [report, draft])
 
-  if (report && report.rows.length === 0 && !loading)
-    return <div className="page"><h1>Sales forecast</h1><div className="panel"><Empty>
-      <strong>No cost centers to forecast</strong>
-      <span>Create a budget for this year, or ask an administrator to assign you a cost center.</span>
-    </Empty></div></div>
-
   const elapsed = report?.elapsedMonths ?? 0
   const canEditAny = (report?.rows ?? []).some(r => r.canEdit)
+  const colCount = 2 + 12 + (hasBudget ? 2 : 1)   // label + months + (FY total [+ vs budget])
 
   return (
     <div className="page">
@@ -104,25 +109,44 @@ export default function ForecastPage({ year }: { year?: number }) {
         <div className="titles">
           <h1>Sales forecast</h1>
           <span className="muted small">
-            Expected sales per cost center per month. Elapsed months seed from B1 actual sales, remaining months from the sales budget.
+            Expected sales per {mll} per month. Elapsed months seed from B1 actual sales;
+            remaining months from the {hasBudget ? 'sales budget' : 'elapsed-month run-rate'}.
             {report?.budgetVersionName && <> Budget baseline: {report.budgetVersionName}.</>}
             {report?.actualsAsOf && <> Actuals read {when(report.actualsAsOf)}.</>}
           </span>
         </div>
         <div className="row">
+          {auth.isAdmin && (
+            <select value={basis} onChange={e => changeBasis(e.target.value as ForecastBasis)} aria-label="Forecast by" title="What to forecast by">
+              {BASES.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+            </select>
+          )}
+          {auth.isAdmin && basis === 'ItemUdf' && (report?.udfFields.length
+            ? <select value={udf} onChange={e => setUdf(e.target.value)} aria-label="Item UDF" title="Item user-defined field">
+                {report.udfFields.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            : <span className="status warn" title="No U_ fields found on the item master">No item UDFs</span>)}
           {report && report.availableYears.length > 0 && (
-            <select value={fy} onChange={e => load(Number(e.target.value))} aria-label="Fiscal year">
+            <select value={fy} onChange={e => setYearSel(Number(e.target.value))} aria-label="Fiscal year">
               {report.availableYears.map(y => <option key={y} value={y}>FY {y}</option>)}
             </select>
           )}
-          <button disabled={loading} onClick={() => load(fy, true)}>{loading ? 'Loading…' : 'Refresh actuals'}</button>
-          {canEditAny && <button disabled={seeding || loading} onClick={seed}>{seeding ? 'Seeding…' : 'Seed from actuals + budget'}</button>}
+          <button disabled={loading} onClick={() => load(true)}>{loading ? 'Loading…' : 'Refresh actuals'}</button>
+          {canEditAny && <button disabled={seeding || loading} onClick={seed} title={hasBudget ? 'Elapsed months from actuals, remaining from budget' : 'Elapsed months from actuals, remaining from run-rate'}>{seeding ? 'Seeding…' : 'Seed'}</button>}
           {canEditAny && <button className="primary" disabled={saving || dirty.size === 0} onClick={save}>{saving ? 'Saving…' : dirty.size ? `Save (${dirty.size})` : 'Saved'}</button>}
         </div>
       </div>
 
       {error && <div className="banner error">{error}</div>}
       {!report && !error && <div className="empty">Loading forecast…</div>}
+      {report && report.rows.length === 0 && !loading && (
+        <div className="panel"><Empty>
+          <strong>Nothing to forecast here</strong>
+          <span>{basis === 'Dimension'
+            ? 'Create a budget for this year, or ask an administrator to assign you a cost center.'
+            : `No ${mll} sales found for FY ${fy}. Switch the company to SAP B1, or pick another basis.`}</span>
+        </Empty></div>
+      )}
 
       {report && report.rows.length > 0 && <>
         <div className="tiles">
@@ -131,18 +155,18 @@ export default function ForecastPage({ year }: { year?: number }) {
             <div className="value">{fmt(totals.forecast)}</div>
             <div className="sub">{report.currency || 'local'} · full year</div>
           </div>
-          <div className="tile">
+          {hasBudget && <div className="tile">
             <div className="label">Budget sales (FY)</div>
             <div className="value">{fmt(totals.budget)}</div>
             <div className="sub">{report.budgetVersionName ?? 'no budget baseline'}</div>
-          </div>
-          <div className="tile">
+          </div>}
+          {hasBudget && <div className="tile">
             <div className="label">Forecast vs budget</div>
             {(() => { const v = vsBudget(totals.forecast, totals.budget); return <>
               <div className={`value ${v >= 0 ? 'ok' : 'bad'}`}>{v >= 0 ? '+' : ''}{fmt(v)}</div>
               <div className="sub">{totals.budget ? pct(v / Math.abs(totals.budget) * 100) : '—'} vs budget</div>
             </> })()}
-          </div>
+          </div>}
           <div className="tile">
             <div className="label">Actual sales to date</div>
             <div className="value">{fmt(totals.actual)}</div>
@@ -152,8 +176,8 @@ export default function ForecastPage({ year }: { year?: number }) {
 
         <div className="panel flush">
           <div className="panel-head">
-            <h2>By cost center</h2>
-            <span className="muted small">shaded months are elapsed (actuals) · click a cost center to compare with budget &amp; actual</span>
+            <h2>By {mll}</h2>
+            <span className="muted small">shaded months are elapsed (actuals) · click a row to compare with {hasBudget ? 'budget & actual' : 'actual'}</span>
             <div className="grow" />
             {!canEditAny && <span className="status neutral">Read-only</span>}
           </div>
@@ -161,10 +185,10 @@ export default function ForecastPage({ year }: { year?: number }) {
             <table className="data">
               <thead>
                 <tr>
-                  <th style={{ minWidth: 180 }}>Cost center</th>
+                  <th style={{ minWidth: 180 }}>{memberLabel}</th>
                   {report.periodLabels.map((p, i) => <th key={i} className={`num${i < elapsed ? ' past' : ''}`} style={{ minWidth: 88 }}>{p}</th>)}
                   <th className="num">FY total</th>
-                  <th className="num">vs budget</th>
+                  {hasBudget && <th className="num">vs budget</th>}
                 </tr>
               </thead>
               <tbody>
@@ -191,18 +215,20 @@ export default function ForecastPage({ year }: { year?: number }) {
                         </td>
                       ))}
                       <td className="num"><strong>{fmt(ftot)}</strong></td>
-                      <td className={`num ${v > 0.5 ? 'ok' : v < -0.5 ? 'bad' : ''}`}>{v > 0 ? '+' : ''}{fmt(v)}</td>
+                      {hasBudget && <td className={`num ${v > 0.5 ? 'ok' : v < -0.5 ? 'bad' : ''}`}>{v > 0 ? '+' : ''}{fmt(v)}</td>}
                     </tr>,
                     ...(isOpen ? [
-                      <tr key={row.brand + 'b'} className="subtotal">
-                        <td style={{ paddingLeft: 28 }}>Budget</td>
-                        {row.budget.map((x, i) => <td key={i} className="num muted">{x ? fmt(x) : ''}</td>)}
-                        <td className="num muted">{fmt(btot)}</td><td />
-                      </tr>,
+                      ...(hasBudget ? [
+                        <tr key={row.brand + 'b'} className="subtotal">
+                          <td style={{ paddingLeft: 28 }}>Budget</td>
+                          {row.budget.map((x, i) => <td key={i} className="num muted">{x ? fmt(x) : ''}</td>)}
+                          <td className="num muted">{fmt(btot)}</td><td />
+                        </tr>,
+                      ] : []),
                       <tr key={row.brand + 'a'} className="subtotal">
                         <td style={{ paddingLeft: 28 }}>Actual</td>
                         {row.actual.map((x, i) => <td key={i} className={`num muted${i < elapsed ? '' : ' faint'}`}>{x ? fmt(x) : ''}</td>)}
-                        <td className="num muted">{fmt(sum(row.actual, 0, elapsed))}</td><td />
+                        <td className="num muted">{fmt(sum(row.actual, 0, elapsed))}</td>{hasBudget && <td />}
                       </tr>,
                     ] : []),
                   ]
@@ -211,16 +237,18 @@ export default function ForecastPage({ year }: { year?: number }) {
                   <td>Total forecast sales</td>
                   {report.periodLabels.map((_, i) => <td key={i} className="num">{fmt(report.rows.reduce((s, r) => s + forecastOf(r.brand)[i], 0))}</td>)}
                   <td className="num">{fmt(totals.forecast)}</td>
-                  <td className={`num ${totals.forecast - totals.budget >= 0 ? 'ok' : 'bad'}`}>
+                  {hasBudget && <td className={`num ${totals.forecast - totals.budget >= 0 ? 'ok' : 'bad'}`}>
                     {totals.forecast - totals.budget >= 0 ? '+' : ''}{fmt(totals.forecast - totals.budget)}
-                  </td>
+                  </td>}
                 </tr>
               </tbody>
             </table>
           </div>
         </div>
         <div className="muted small">
-          Full-year totals: forecast {short(totals.forecast)} · budget {short(totals.budget)}. The forecast is app-only — it is not pushed to SAP B1.
+          Full-year forecast {short(totals.forecast)}{hasBudget && <> · budget {short(totals.budget)}</>}.
+          {basis !== 'Dimension' && ' Actual sales come from posted sales invoices (minus credit memos).'}
+          {' '}The forecast is app-only — it is not pushed to SAP B1.{colCount ? '' : ''}
         </div>
       </>}
       {toastNode}

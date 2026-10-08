@@ -77,6 +77,16 @@ using (var scope = app.Services.CreateScope())
     AddColumn("Versions", "SupersededAt", "TEXT NULL");
     AddColumn("Settings", "PushMainBudget", "INTEGER NOT NULL DEFAULT 1");
     AddColumn("Settings", "MainScenarioName", "TEXT NOT NULL DEFAULT 'Main Budget'");
+
+    // Sales forecast gained a basis (dimension / item group / item / item-UDF). A forecast table created before
+    // that only keyed on (company, year); widen the uniqueness to include the basis and UDF name.
+    if (db.Database.SqlQueryRaw<int>("select count(*) as [Value] from sqlite_master where type='table' and name='Forecasts'").AsEnumerable().Single() == 1)
+    {
+        AddColumn("Forecasts", "Basis", "INTEGER NOT NULL DEFAULT 0");
+        AddColumn("Forecasts", "UdfName", "TEXT NOT NULL DEFAULT ''");
+        db.Database.ExecuteSqlRaw("drop index if exists IX_Forecasts_CompanyId_FiscalYear");
+        db.Database.ExecuteSqlRaw("create unique index if not exists IX_Forecasts_CompanyId_FiscalYear_Basis_UdfName on Forecasts (CompanyId, FiscalYear, Basis, UdfName)");
+    }
     db.Database.ExecuteSqlRaw("update Versions set FamilyId = Id where FamilyId = 0");
 
     // Multi-company: the old single settings row becomes company #1; brands, accounts and budgets get a CompanyId.

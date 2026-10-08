@@ -128,25 +128,44 @@ public class PushItem
 // ------------------------------------------------------------------ sales forecast
 
 /// <summary>
-/// A living sales forecast for one company and fiscal year: expected sales (revenue) per brand (cost center)
-/// per month. One forecast per company+year; owners re-estimate their own brands. App-only — never pushed to
-/// SAP B1. Elapsed months are typically seeded from B1 actual sales and future months from the sales budget.
+/// What a sales forecast is broken down by. Each basis has its own "members" and its own source of actual sales:
+/// <list type="bullet">
+/// <item><see cref="Dimension"/> — distribution rules of the company's cost-accounting dimension (the brands/cost
+///   centers); actuals come from journal lines (JDT1), like the budget. Department-scoped.</item>
+/// <item><see cref="ItemGroup"/> — SAP B1 item groups (OITB); actuals from sales invoice lines.</item>
+/// <item><see cref="Item"/> — individual items (OITM); actuals from sales invoice lines.</item>
+/// <item><see cref="ItemUdf"/> — distinct values of a user-defined field on the item master (e.g. U_Brand);
+///   actuals from sales invoice lines grouped by that field.</item>
+/// </list>
+/// </summary>
+public enum ForecastBasis { Dimension, ItemGroup, Item, ItemUdf }
+
+/// <summary>
+/// A living sales forecast for one company, fiscal year and <see cref="Basis"/>: expected sales per member
+/// (cost center, item group, item or UDF value) per month. One forecast per company+year+basis(+UDF). Owners
+/// re-estimate their own members (item-based bases are finance/admin only). App-only — never pushed to SAP B1.
+/// Elapsed months are typically seeded from B1 actual sales and future months from the budget or a run-rate.
 /// </summary>
 public class SalesForecast
 {
     public int Id { get; set; }
     public int CompanyId { get; set; }
     public int FiscalYear { get; set; }
+    public ForecastBasis Basis { get; set; } = ForecastBasis.Dimension;
+    /// <summary>The item UDF name when <see cref="Basis"/> is <see cref="ForecastBasis.ItemUdf"/> (e.g. "U_Brand"); otherwise empty.</summary>
+    public string UdfName { get; set; } = "";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public List<SalesForecastLine> Lines { get; set; } = new();
 }
 
-/// <summary>One brand's 12 monthly expected-sales figures within a <see cref="SalesForecast"/>.</summary>
+/// <summary>One member's 12 monthly expected-sales figures within a <see cref="SalesForecast"/>. The column is
+/// named <c>BrandCode</c> for backward compatibility but holds the member code of whatever the forecast's basis is.</summary>
 public class SalesForecastLine
 {
     public int Id { get; set; }
     public int ForecastId { get; set; }
+    /// <summary>Member code: a distribution rule, item group code, item code, or UDF value, per the forecast's basis.</summary>
     public string BrandCode { get; set; } = "";
     /// <summary>Index 0 = fiscal period 1.</summary>
     public decimal[] Amounts { get; set; } = new decimal[12];
@@ -230,7 +249,7 @@ public class MailSettings
     public string? UserName { get; set; }
     public string? PasswordEncrypted { get; set; }
     public string FromAddress { get; set; } = "";
-    public string FromName { get; set; } = "Nexus B1 Budget";
+    public string FromName { get; set; } = "Cobalt B1 Budget";
     /// <summary>Base address people open the app at — used for links in e-mails.</summary>
     public string AppUrl { get; set; } = "http://localhost:5140";
 }

@@ -184,7 +184,7 @@ public class Notifier(AppDbContext db, MailQueue queue)
           <table role="presentation" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e3e6f0;border-radius:8px">
             <tr><td style="padding:18px 24px;border-bottom:1px solid #e3e6f0">
               <span style="display:inline-block;width:18px;height:18px;border-radius:5px;background:#3b54d4;vertical-align:middle"></span>
-              <b style="font-size:15px;vertical-align:middle;margin-left:6px">Nexus</b>
+              <b style="font-size:15px;vertical-align:middle;margin-left:6px">Cobalt</b>
               <span style="font-size:12px;color:#5a6480;vertical-align:middle">B1 Budget</span>
             </td></tr>
             <tr><td style="padding:22px 24px">
@@ -194,7 +194,7 @@ public class Notifier(AppDbContext db, MailQueue queue)
               {(string.IsNullOrWhiteSpace(comment) ? "" : $"""<p style="margin:0 0 16px;padding:10px 12px;background:#eef1fb;border-radius:5px;font-size:13px">“{E(comment)}”</p>""")}
               <a href="{E(link)}" style="display:inline-block;background:#3b54d4;color:#ffffff;text-decoration:none;padding:9px 16px;border-radius:5px;font-size:13px;font-weight:600">{E(button)}</a>
             </td></tr>
-            <tr><td style="padding:12px 24px;border-top:1px solid #e3e6f0;font-size:11px;color:#5a6480">You receive this because you own or approve this budget in Nexus B1 Budget.</td></tr>
+            <tr><td style="padding:12px 24px;border-top:1px solid #e3e6f0;font-size:11px;color:#5a6480">You receive this because you own or approve this budget in Cobalt B1 Budget.</td></tr>
           </table>
         </div>
         """;

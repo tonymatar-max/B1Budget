@@ -32,7 +32,7 @@ export default function LoginPage({ mode, me, onDone }: { mode: Mode; me?: Me | 
       <form className="panel" onSubmit={submit} style={{ width: 'min(400px, 100%)', padding: '28px 28px 24px' }}>
         <div className="stack" style={{ alignItems: 'center', textAlign: 'center', marginBottom: 18 }}>
           <div className="brand-mark large"><span className="brand-node" /></div>
-          <div className="product-title" style={{ justifyContent: 'center' }}><strong>Nexus</strong><span className="product-sub">B1 Budget</span></div>
+          <div className="product-title" style={{ justifyContent: 'center' }}><strong>Cobalt</strong><span className="product-sub">B1 Budget</span></div>
           <h1 style={{ fontSize: 18 }}>{title}</h1>
           {mode === 'setup' && <span className="small muted">First start — this account manages companies, users and budgets.</span>}
           {mode === 'change' && <span className="small muted">{me?.displayName}, your password was set by an administrator. Pick your own to continue.</span>}

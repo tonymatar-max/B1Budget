@@ -224,6 +224,31 @@ public class ReportService(AppDbContext db, GatewayFactory factory, IMemoryCache
         return (byBrand, asOf);
     }
 
+    /// <summary>Net sales per member (name + 12 periods) for an item-based forecast basis, cached for 5 minutes.</summary>
+    public async Task<(Dictionary<string, (string Name, decimal[] Amounts)> ByMember, DateTime AsOf)> SalesByMemberAsync(
+        Company c, ForecastBasis basis, string udf, int year, bool refresh, CancellationToken ct)
+    {
+        var cal = new FiscalCalendar(c.FiscalYearStartMonth);
+        var key = $"salemem:{c.Id}:{c.Mode}:{c.CompanyDb}:{basis}:{udf}:{year}:{c.FiscalYearStartMonth}";
+        if (refresh) cache.Remove(key);
+        var (rows, asOf) = await cache.GetOrCreateAsync(key, async e =>
+        {
+            e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+            using var gw = factory.Create(c);
+            return await gw.GetSalesByMemberAsync(basis, udf, cal.YearStart(year), cal.PeriodEnd(year, 12), ct);
+        });
+        var map = new Dictionary<string, (string Name, decimal[] Amounts)>();
+        foreach (var r in rows)
+        {
+            var p = cal.PeriodOf(year, r.Date);
+            if (p == 0) continue;
+            if (!map.TryGetValue(r.Member, out var entry)) map[r.Member] = entry = (r.MemberName, new decimal[12]);
+            else if (string.IsNullOrEmpty(entry.Name) && !string.IsNullOrEmpty(r.MemberName)) map[r.Member] = entry = (r.MemberName, entry.Amounts);
+            entry.Amounts[p - 1] += r.Amount;
+        }
+        return (map, asOf);
+    }
+
     public async Task<List<JournalLineDto>> DrillAsync(int versionId, string brand, string account, int fromPeriod, int toPeriod, CancellationToken ct)
     {
         var version = await db.Versions.AsNoTracking().FirstOrDefaultAsync(v => v.Id == versionId, ct)

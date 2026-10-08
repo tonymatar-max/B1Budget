@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using B1Budget.Api.Domain;
 
 namespace B1Budget.Api.Services.B1;
@@ -137,6 +139,80 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
         return rows.Select(r => new JournalLineDto(
             (int)Dec(r, "TransId"), (int)Dec(r, "Line_ID"), Date(r, "RefDate"), Str(r, "Account"), Str(r, "Brand"),
             Dec(r, "Debit"), Dec(r, "Credit"), NullIfEmpty(Str(r, "LineMemo")), NullIfEmpty(Str(r, "Ref1")), NullIfEmpty(Str(r, "TransType")))).ToList();
+    }
+
+    // ---------------------------------------------------------------- item-based forecasting (sales documents)
+    // NOTE: not yet verified against a live company. OINV/INV1/ORIN/RIN1/OITM/OITB must be allowed in the
+    // Service Layer SQL table whitelist (b1s_sqltable.conf), like JDT1 for actuals.
+
+    private static readonly Regex UdfName = new("^U_[A-Za-z0-9_]{1,60}$", RegexOptions.Compiled);
+    private static string RequireUdf(string? udf) =>
+        !string.IsNullOrWhiteSpace(udf) && UdfName.IsMatch(udf) ? udf
+        : throw new InvalidOperationException("Choose a valid item UDF (a U_… field) to forecast by.");
+
+    public async Task<List<string>> GetItemUdfFieldsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var doc = XDocument.Parse(await sl.GetMetadataAsync(ct));
+            var item = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "EntityType" && (string?)e.Attribute("Name") == "Item");
+            if (item is null) return new();
+            return item.Elements().Where(e => e.Name.LocalName == "Property")
+                .Select(e => (string?)e.Attribute("Name") ?? "")
+                .Where(n => n.StartsWith("U_", StringComparison.Ordinal)).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return new(); }
+    }
+
+    public async Task<List<ForecastMemberDto>> GetForecastMembersAsync(ForecastBasis basis, string? udf, CancellationToken ct)
+    {
+        switch (basis)
+        {
+            case ForecastBasis.ItemGroup:
+                var groups = await sl.QueryAllAsync("ItemGroups?$select=Number,GroupName", ct);
+                return groups.Select(g => new ForecastMemberDto(Str(g, "Number"), Str(g, "GroupName"))).ToList();
+            case ForecastBasis.ItemUdf:
+                var u = RequireUdf(udf);
+                await sl.EnsureSqlQueryAsync("NXBGT_UDFVAL", "Nexus Budget UDF values",
+                    $"SELECT DISTINCT T0.{u} AS Val FROM OITM T0 WHERE T0.{u} IS NOT NULL AND T0.{u} <> ''", ct);
+                var vals = await sl.RunSqlQueryAsync("NXBGT_UDFVAL", new Dictionary<string, string>(), ct);
+                return vals.Select(v => Str(v, "Val")).Where(s => s.Length > 0).Distinct()
+                    .Select(s => new ForecastMemberDto(s, s)).ToList();
+            default:
+                // Item basis members are derived from sales (the item master can be huge); Dimension uses synced brands.
+                return new();
+        }
+    }
+
+    public async Task<(List<MemberSalesRow> Rows, DateTime AsOf)> GetSalesByMemberAsync(ForecastBasis basis, string? udf, DateTime from, DateTime to, CancellationToken ct)
+    {
+        // member/name column expressions and the join for each basis
+        var (member, name, join, code) = basis switch
+        {
+            ForecastBasis.ItemGroup => ("T2.ItmsGrpCod", "T3.ItmsGrpNam", " INNER JOIN OITB T3 ON T3.ItmsGrpCod = T2.ItmsGrpCod", "G"),
+            ForecastBasis.Item => ("T1.ItemCode", "T1.Dscription", "", "I"),
+            ForecastBasis.ItemUdf => ($"T2.{RequireUdf(udf)}", $"T2.{RequireUdf(udf)}", "", "U"),
+            _ => throw new InvalidOperationException("Item-based sales are only for item / item-group / item-UDF forecasts."),
+        };
+
+        // Net sales = invoices − credit memos, by member and posting date. One stored query per basis.
+        string Branch(string lines, string header, decimal sign) =>
+            $"SELECT {member} AS Member, {name} AS MemberName, T0.DocDate AS D, SUM({(sign < 0 ? "-" : "")}T1.LineTotal) AS Amount " +
+            $"FROM {lines} T1 INNER JOIN {header} T0 ON T0.DocEntry = T1.DocEntry " +
+            $"INNER JOIN OITM T2 ON T2.ItemCode = T1.ItemCode{join} " +
+            "WHERE T0.DocDate >= :fromDate AND T0.DocDate <= :toDate " +
+            $"GROUP BY {member}, {name}, T0.DocDate";
+        var sql = Branch("INV1", "OINV", 1) + " UNION ALL " + Branch("RIN1", "ORIN", -1);
+
+        var qcode = $"NXBGT_SALE_{code}";
+        await sl.EnsureSqlQueryAsync(qcode, $"Nexus Budget sales by member ({code})", sql, ct);
+        var rows = await sl.RunSqlQueryAsync(qcode, new Dictionary<string, string>
+        {
+            ["fromDate"] = $"'{from:yyyy-MM-dd}'", ["toDate"] = $"'{to:yyyy-MM-dd}'",
+        }, ct);
+        var result = rows.Select(r => new MemberSalesRow(Str(r, "Member"), NullIfEmpty(Str(r, "MemberName")) ?? Str(r, "Member"), Date(r, "D"), Dec(r, "Amount")))
+            .Where(r => r.Member.Length > 0).ToList();
+        return (result, DateTime.UtcNow);
     }
 
     // ---------------------------------------------------------------- native budgets

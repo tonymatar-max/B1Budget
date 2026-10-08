@@ -184,6 +184,7 @@ export interface BvaReport {
   compareVersionName: string | null
 }
 
+export type ForecastBasis = 'Dimension' | 'ItemGroup' | 'Item' | 'ItemUdf'
 export interface ForecastBrandRow {
   brand: string
   brandName: string
@@ -197,6 +198,11 @@ export interface ForecastReport {
   currency: string
   fiscalYear: number
   availableYears: number[]
+  basis: ForecastBasis
+  udf: string
+  udfFields: string[]
+  hasBudgetBaseline: boolean
+  memberLabel: string
   periodLabels: string[]
   currentPeriod: number
   elapsedMonths: number
@@ -366,12 +372,28 @@ export const api = {
   group: (year: number, from?: number, to?: number, refresh = false, versions?: Record<number, number>) =>
     request<GroupReport>('GET', `/reports/group?year=${year}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}${refresh ? '&refresh=true' : ''}${
       versions && Object.keys(versions).length ? `&versions=${Object.entries(versions).map(([c, v]) => `${c}:${v}`).join(',')}` : ''}`),
-  forecast: (year?: number, refresh = false) =>
-    request<ForecastReport>('GET', `/forecast${year ? `?year=${year}` : ''}${refresh ? `${year ? '&' : '?'}refresh=true` : ''}`),
-  saveForecastLine: (year: number, brand: string, amounts: number[]) =>
-    request<void>('PUT', `/forecast/${year}/brands/${encodeURIComponent(brand)}`, { amounts }),
-  seedForecast: (year: number, refresh = false) =>
-    request<{ seeded: number; brands: string[] }>('POST', `/forecast/${year}/seed${refresh ? '?refresh=true' : ''}`),
+  forecast: (year?: number, basis: ForecastBasis = 'Dimension', udf = '', refresh = false) => {
+    const q = new URLSearchParams()
+    if (year) q.set('year', String(year))
+    if (basis !== 'Dimension') q.set('basis', basis)
+    if (udf) q.set('udf', udf)
+    if (refresh) q.set('refresh', 'true')
+    return request<ForecastReport>('GET', `/forecast${q.toString() ? `?${q}` : ''}`)
+  },
+  itemUdfs: () => request<string[]>('GET', '/forecast/item-udfs'),
+  saveForecastLine: (year: number, brand: string, amounts: number[], basis: ForecastBasis = 'Dimension', udf = '') => {
+    const q = new URLSearchParams()
+    if (basis !== 'Dimension') q.set('basis', basis)
+    if (udf) q.set('udf', udf)
+    return request<void>('PUT', `/forecast/${year}/brands/${encodeURIComponent(brand)}${q.toString() ? `?${q}` : ''}`, { amounts })
+  },
+  seedForecast: (year: number, basis: ForecastBasis = 'Dimension', udf = '', refresh = false) => {
+    const q = new URLSearchParams()
+    if (basis !== 'Dimension') q.set('basis', basis)
+    if (udf) q.set('udf', udf)
+    if (refresh) q.set('refresh', 'true')
+    return request<{ seeded: number; brands: string[] }>('POST', `/forecast/${year}/seed${q.toString() ? `?${q}` : ''}`)
+  },
   drill: (versionId: number, brand: string, account: string, from: number, to: number) =>
     request<JournalLine[]>('GET', `/reports/drill?versionId=${versionId}&brand=${encodeURIComponent(brand)}&account=${encodeURIComponent(account)}&from=${from}&to=${to}`),
 }

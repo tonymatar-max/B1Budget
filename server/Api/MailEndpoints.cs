@@ -41,7 +41,7 @@ public static class MailEndpoints
             if (r.ClearPassword) s.PasswordEncrypted = null;
             else if (!string.IsNullOrEmpty(r.Password)) s.PasswordEncrypted = secrets.Protect(r.Password);
             s.FromAddress = r.FromAddress.Trim();
-            s.FromName = string.IsNullOrWhiteSpace(r.FromName) ? "Nexus B1 Budget" : r.FromName.Trim();
+            s.FromName = string.IsNullOrWhiteSpace(r.FromName) ? "Cobalt B1 Budget" : r.FromName.Trim();
             s.AppUrl = r.AppUrl.Trim();
             await db.SaveChangesAsync();
             return Results.Ok(ToDto(s));
@@ -56,9 +56,9 @@ public static class MailEndpoints
             if (string.IsNullOrWhiteSpace(s.Host)) return Results.BadRequest(new { message = "Save the SMTP settings first." });
             if (string.IsNullOrWhiteSpace(r.To) || !r.To.Contains('@')) return Results.BadRequest(new { message = "Enter the address to send the test to." });
             var html = Notifier.Template("Test message",
-                $"This is a test from Nexus B1 Budget, sent by {System.Net.WebUtility.HtmlEncode(scope.User.DisplayName)}. If you can read it, notifications will be delivered.",
-                $"SMTP {s.Host}:{s.Port}", null, "Open Nexus B1 Budget", s.AppUrl);
-            var mail = new OutgoingMail(r.To.Trim(), null, "Nexus B1 Budget — test e-mail", html);
+                $"This is a test from Cobalt B1 Budget, sent by {System.Net.WebUtility.HtmlEncode(scope.User.DisplayName)}. If you can read it, notifications will be delivered.",
+                $"SMTP {s.Host}:{s.Port}", null, "Open Cobalt B1 Budget", s.AppUrl);
+            var mail = new OutgoingMail(r.To.Trim(), null, "Cobalt B1 Budget — test e-mail", html);
             var entry = new MailLog { To = mail.To, Subject = mail.Subject };
             try
             {

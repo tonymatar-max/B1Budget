@@ -1,4 +1,4 @@
-# Nexus B1 Budget
+# Cobalt B1 Budget
 
 Enter budgets **by brand (cost center) × G/L account × month**, push them into **SAP Business One native budgets**, and track **budget vs actual** with drill-down to journal lines.
 
@@ -89,10 +89,14 @@ The first start is in **Mock mode**: demo brands, accounts and actuals, and push
 
 A **sales forecast** is a forward-looking estimate of sales (revenue) per cost center per month, for one fiscal year. It is **app-only** — never pushed to SAP B1 — and sits alongside the budget for a *Budget vs Forecast vs Actual* read.
 
-- **Sales forecast** page: one editable figure per **cost center × month**. Owners forecast only their own cost centers (same scoping as budgets); admins see all. There is no submit/approve cycle — it is a living estimate.
-- **Seed from actuals + budget** fills each cost center's elapsed months with B1 **actual sales** and the remaining months with the **sales budget** (the revenue lines of the year's current budget revision), so you only tweak what is left. It overwrites the forecast for your cost centers; a partial current month is *not* treated as elapsed.
-- The tiles show full-year forecast vs budget and actual sales to date; each cost center can be expanded to compare its forecast against the budget and actual rows month by month.
-- The baseline budget is the year's latest non-superseded approved revision (falling back to the latest of any). One forecast is kept per company and fiscal year.
+- **Sales forecast** page: one editable figure per **member × month**. There is no submit/approve cycle — it is a living estimate.
+- **Forecast basis** (admins): choose what a member is —
+  - **Cost center (dimension)** — the brands/distribution rules, like the budget. Actuals come from journal lines (JDT1). Owners forecast only their own cost centers (same scoping as budgets); admins see all.
+  - **Item group** / **Item** / **Item UDF** (a `U_…` field on the item master) — actuals come from posted **sales invoices minus credit memos** (INV1/RIN1 joined to OITM/OITB). These bases are **admin-only** (they are not department-scoped).
+- **Seed** fills each member's elapsed months with **actual sales**, and the remaining months with the **sales budget** (cost-center basis, from the current budget revision's revenue lines) or the **elapsed-month run-rate** (item bases, which have no item budget). It overwrites those members; a partial current month is *not* treated as elapsed.
+- Tiles show full-year forecast (plus budget vs budget on the cost-center basis) and actual sales to date; each member expands to compare its forecast against actual (and budget) month by month.
+- One forecast is kept per company, fiscal year **and basis** (and UDF field), so different breakdowns coexist. The cost-center budget baseline is the year's latest non-superseded approved revision.
+- The item-based SQL (INV1/RIN1/OITM/OITB) is **not yet verified against a live company** — those tables must be allowed in the Service Layer SQL whitelist (`b1s_sqltable.conf`), like JDT1. It works end-to-end in mock mode.
 
 ## Data
 

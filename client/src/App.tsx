@@ -160,7 +160,7 @@ function Shell({ me, reloadMe }: { me: Me; reloadMe: () => void }) {
     <div className="shell">
       <header className="topbar">
         <div className="brand-mark"><span className="brand-node" /></div>
-        <div className="product-title"><strong>Nexus</strong><span className="product-sub">B1 Budget</span></div>
+        <div className="product-title"><strong>Cobalt</strong><span className="product-sub">B1 Budget</span></div>
         <div className="grow" />
         {companies && companies.length > 0 && (
           <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>

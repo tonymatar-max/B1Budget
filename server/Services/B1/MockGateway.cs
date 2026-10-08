@@ -54,6 +54,59 @@ public class MockGateway(int companyId) : IB1Gateway
         ["NIKE"] = 1.6m, ["ADID"] = 1.25m, ["PUMA"] = 0.7m, ["NB"] = 0.55m, ["SKCH"] = 0.45m, [""] = 0.03m,
     };
 
+    // Demo item master for item/item-group/UDF forecasting. Each item has a group, a brand UDF and a channel UDF.
+    private sealed record ItemDef(string Code, string Name, string Grp, string GrpName, string Brand, string Channel, decimal MonthlyBase);
+    private static readonly ItemDef[] Items =
+    [
+        new("SH-NIKE-01", "Nike Air Zoom", "FOOT", "Footwear", "NIKE", "Retail", 38000),
+        new("SH-ADID-01", "Adidas Ultraboost", "FOOT", "Footwear", "ADID", "Retail", 30000),
+        new("SH-PUMA-01", "Puma Velocity", "FOOT", "Footwear", "PUMA", "Wholesale", 16000),
+        new("AP-NIKE-01", "Nike Dri-FIT Tee", "APP", "Apparel", "NIKE", "E-commerce", 12000),
+        new("AP-ADID-01", "Adidas Club Jersey", "APP", "Apparel", "ADID", "Retail", 9000),
+        new("AP-PUMA-01", "Puma Essential Hoodie", "APP", "Apparel", "PUMA", "Retail", 7000),
+        new("AC-NB-01", "New Balance Logo Cap", "ACC", "Accessories", "NB", "Wholesale", 3000),
+        new("AC-SKCH-01", "Skechers Socks 3-pack", "ACC", "Accessories", "SKCH", "E-commerce", 2200),
+    ];
+
+    private static (string Code, string Name) MemberOf(ItemDef it, ForecastBasis basis, string? udf) => basis switch
+    {
+        ForecastBasis.ItemGroup => (it.Grp, it.GrpName),
+        ForecastBasis.Item => (it.Code, it.Name),
+        ForecastBasis.ItemUdf => string.Equals(udf, "U_Channel", StringComparison.OrdinalIgnoreCase) ? (it.Channel, it.Channel) : (it.Brand, it.Brand),
+        _ => (it.Brand, it.Brand),
+    };
+
+    public Task<List<string>> GetItemUdfFieldsAsync(CancellationToken ct) => Task.FromResult(new List<string> { "U_Brand", "U_Channel" });
+
+    public Task<List<ForecastMemberDto>> GetForecastMembersAsync(ForecastBasis basis, string? udf, CancellationToken ct) => Task.FromResult(basis switch
+    {
+        ForecastBasis.Dimension => BrandList.Select(b => new ForecastMemberDto(b.Code, b.Name)).ToList(),
+        ForecastBasis.ItemGroup => Items.GroupBy(i => (i.Grp, i.GrpName)).Select(g => new ForecastMemberDto(g.Key.Grp, g.Key.GrpName)).ToList(),
+        ForecastBasis.Item => Items.Select(i => new ForecastMemberDto(i.Code, i.Name)).ToList(),
+        ForecastBasis.ItemUdf => Items.Select(i => MemberOf(i, basis, udf)).Distinct().Select(m => new ForecastMemberDto(m.Code, m.Name)).ToList(),
+        _ => new List<ForecastMemberDto>(),
+    });
+
+    public Task<(List<MemberSalesRow> Rows, DateTime AsOf)> GetSalesByMemberAsync(ForecastBasis basis, string? udf, DateTime from, DateTime to, CancellationToken ct)
+    {
+        var rows = new List<MemberSalesRow>();
+        var companyScale = 1m + (companyId - 1) * 0.35m;
+        var today = DateTime.UtcNow.Date;
+        foreach (var it in Items)
+        {
+            var (code, name) = MemberOf(it, basis, udf);
+            for (var d = from.Date; d <= to.Date && d <= today; d = d.AddDays(1))
+            {
+                if (d.DayOfWeek == DayOfWeek.Friday) continue;
+                var seasonal = 1 + 0.25 * Math.Sin((d.Month - 3) / 12.0 * 2 * Math.PI) + (d.Month is 11 or 12 ? 0.3 : 0);
+                var noise = 0.75 + (Hash(it.Code, "", d) % 50) / 100.0;
+                var amt = Math.Round(it.MonthlyBase / 26m * (decimal)(seasonal * noise) * companyScale, 2);
+                if (amt != 0) rows.Add(new MemberSalesRow(code, name, d, amt));
+            }
+        }
+        return Task.FromResult((rows, DateTime.UtcNow));
+    }
+
     public Task<string> TestConnectionAsync(CancellationToken ct) => Task.FromResult("Mock mode — demo data, nothing is sent to SAP B1.");
 
     public Task<List<BrandDto>> GetBrandsAsync(int dimension, CancellationToken ct) => Task.FromResult(BrandList.ToList());

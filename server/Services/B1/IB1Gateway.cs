@@ -13,6 +13,12 @@ public record JournalLineDto(int TransId, int LineId, DateTime Date, string Acco
 
 public record UpsertResult(PushAction Action, string? Key);
 
+/// <summary>A selectable forecast member (code + display name) for a given basis.</summary>
+public record ForecastMemberDto(string Code, string Name);
+
+/// <summary>Net sales for one forecast member on one posting date (item-based bases, from sales documents).</summary>
+public record MemberSalesRow(string Member, string MemberName, DateTime Date, decimal Amount);
+
 /// <summary>Everything the app needs from SAP B1. Two implementations: live Service Layer and an in-memory mock.</summary>
 public interface IB1Gateway : IDisposable
 {
@@ -21,6 +27,16 @@ public interface IB1Gateway : IDisposable
     Task<List<AccountDto>> GetAccountsAsync(CancellationToken ct);
     Task<List<ActualRow>> GetActualsAsync(int dimension, DateTime from, DateTime to, CancellationToken ct);
     Task<List<JournalLineDto>> GetJournalLinesAsync(int dimension, string account, string brand, DateTime from, DateTime to, CancellationToken ct);
+
+    /// <summary>Item user-defined field names (OITM U_… columns) that a forecast could be grouped by.</summary>
+    Task<List<string>> GetItemUdfFieldsAsync(CancellationToken ct);
+    /// <summary>
+    /// The selectable members for a forecast basis: dimension distribution rules, item groups, the distinct
+    /// values of an item UDF, or (for the Item basis) the item master. Codes + display names.
+    /// </summary>
+    Task<List<ForecastMemberDto>> GetForecastMembersAsync(ForecastBasis basis, string? udf, CancellationToken ct);
+    /// <summary>Net sales (invoices − credit memos) per member per posting date for an item-based basis.</summary>
+    Task<(List<MemberSalesRow> Rows, DateTime AsOf)> GetSalesByMemberAsync(ForecastBasis basis, string? udf, DateTime from, DateTime to, CancellationToken ct);
 
     Task<BudgetFieldMap> GetBudgetFieldMapAsync(CancellationToken ct);
     /// <summary>Find the budget scenario for this name + fiscal year without creating it.</summary>

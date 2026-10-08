@@ -49,8 +49,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             (a, c) => a!.SequenceEqual(c!), a => a.Aggregate(0, (h, d) => HashCode.Combine(h, d)), a => a.ToArray());
         b.Entity<BudgetLine>().Property(l => l.Amounts).HasConversion(amountsConverter, amountsComparer);
 
-        // Sales forecast: one per company+year, with the same 12-period amount storage as budget lines.
-        b.Entity<SalesForecast>().HasIndex(f => new { f.CompanyId, f.FiscalYear }).IsUnique();
+        // Sales forecast: one per company+year+basis(+UDF), with the same 12-period amount storage as budget lines.
+        b.Entity<SalesForecast>().HasIndex(f => new { f.CompanyId, f.FiscalYear, f.Basis, f.UdfName }).IsUnique();
         b.Entity<SalesForecast>().HasMany(f => f.Lines).WithOne().HasForeignKey(l => l.ForecastId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<SalesForecastLine>().HasIndex(l => new { l.ForecastId, l.BrandCode }).IsUnique();
         b.Entity<SalesForecastLine>().Property(l => l.Amounts).HasConversion(amountsConverter, amountsComparer);
