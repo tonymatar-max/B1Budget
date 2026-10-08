@@ -32,9 +32,10 @@ public interface IB1Gateway : IDisposable
     Task<List<string>> GetItemUdfFieldsAsync(CancellationToken ct);
     /// <summary>
     /// The selectable members for a forecast basis: dimension distribution rules, item groups, the distinct
-    /// values of an item UDF, or (for the Item basis) the item master. Codes + display names.
+    /// values of an item UDF, or (for the Item basis) all active sales items — optionally limited to one item
+    /// <paramref name="group"/> code. Codes + display names.
     /// </summary>
-    Task<List<ForecastMemberDto>> GetForecastMembersAsync(ForecastBasis basis, string? udf, CancellationToken ct);
+    Task<List<ForecastMemberDto>> GetForecastMembersAsync(ForecastBasis basis, string? udf, string? group, CancellationToken ct);
     /// <summary>Net sales (invoices − credit memos) per member per posting date for an item-based basis.</summary>
     Task<(List<MemberSalesRow> Rows, DateTime AsOf)> GetSalesByMemberAsync(ForecastBasis basis, string? udf, DateTime from, DateTime to, CancellationToken ct);
 

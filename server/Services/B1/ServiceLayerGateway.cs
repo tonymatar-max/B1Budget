@@ -164,13 +164,19 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
         catch (Exception ex) when (ex is not OperationCanceledException) { return new(); }
     }
 
-    public async Task<List<ForecastMemberDto>> GetForecastMembersAsync(ForecastBasis basis, string? udf, CancellationToken ct)
+    public async Task<List<ForecastMemberDto>> GetForecastMembersAsync(ForecastBasis basis, string? udf, string? group, CancellationToken ct)
     {
         switch (basis)
         {
             case ForecastBasis.ItemGroup:
                 var groups = await sl.QueryAllAsync("ItemGroups?$select=Number,GroupName", ct);
                 return groups.Select(g => new ForecastMemberDto(Str(g, "Number"), Str(g, "GroupName"))).ToList();
+            case ForecastBasis.Item:
+                // All active sales items, optionally limited to one item group (so a future year lists items with no sales yet).
+                var filter = "Valid eq 'tYES' and SalesItem eq 'tYES'";
+                if (!string.IsNullOrWhiteSpace(group) && int.TryParse(group, out var gc)) filter += $" and ItemsGroupCode eq {gc}";
+                var items = await sl.QueryAllAsync($"Items?$select=ItemCode,ItemName&$filter={filter}", ct);
+                return items.Select(i => new ForecastMemberDto(Str(i, "ItemCode"), NullIfEmpty(Str(i, "ItemName")) ?? Str(i, "ItemCode"))).ToList();
             case ForecastBasis.ItemUdf:
                 var u = RequireUdf(udf);
                 await sl.EnsureSqlQueryAsync("NXBGT_UDFVAL", "Cobalt Budget UDF values",
@@ -179,8 +185,7 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
                 return vals.Select(v => Str(v, "Val")).Where(s => s.Length > 0).Distinct()
                     .Select(s => new ForecastMemberDto(s, s)).ToList();
             default:
-                // Item basis members are derived from sales (the item master can be huge); Dimension uses synced brands.
-                return new();
+                return new();   // Dimension uses synced brands.
         }
     }
 

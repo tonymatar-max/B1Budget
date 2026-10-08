@@ -512,11 +512,11 @@ public static class Endpoints
         static ForecastBasis ParseBasis(string? s) =>
             Enum.TryParse<ForecastBasis>(s, true, out var b) ? b : ForecastBasis.Dimension;
 
-        api.MapGet("/forecast", async (int? year, string? basis, string? udf, bool? refresh, ForecastService forecast, AccessService access, CancellationToken ct) =>
+        api.MapGet("/forecast", async (int? year, string? basis, string? udf, string? group, bool? refresh, ForecastService forecast, AccessService access, CancellationToken ct) =>
         {
             var c = await access.CompanyAsync();
             var scope = await access.ScopeAsync();
-            return Results.Ok(await forecast.GetAsync(c, year, ParseBasis(basis), udf, refresh ?? false, scope, ct));
+            return Results.Ok(await forecast.GetAsync(c, year, ParseBasis(basis), udf, group, refresh ?? false, scope, ct));
         });
 
         // List the item user-defined fields (U_…) a forecast can be grouped by.
@@ -536,13 +536,13 @@ public static class Endpoints
             return Results.Ok();
         });
 
-        api.MapPost("/forecast/{year:int}/seed", async (int year, string? basis, string? udf, string? method, decimal? growth, int? years, bool? refresh,
+        api.MapPost("/forecast/{year:int}/seed", async (int year, string? basis, string? udf, string? group, string? method, decimal? growth, int? years, bool? refresh,
             ForecastService forecast, AccessService access, CancellationToken ct) =>
         {
             var c = await access.CompanyAsync();
             var scope = await access.ScopeAsync();
             var m = Enum.TryParse<ForecastMethod>(method, true, out var fm) ? fm : ForecastMethod.Budget;
-            var seeded = await forecast.SeedAsync(c, year, ParseBasis(basis), udf, m, growth ?? 0m, years ?? 3, scope, refresh ?? false, ct);
+            var seeded = await forecast.SeedAsync(c, year, ParseBasis(basis), udf, group, m, growth ?? 0m, years ?? 3, scope, refresh ?? false, ct);
             return Results.Ok(new { seeded = seeded.Count, brands = seeded });
         });
 

@@ -78,11 +78,11 @@ public class MockGateway(int companyId) : IB1Gateway
 
     public Task<List<string>> GetItemUdfFieldsAsync(CancellationToken ct) => Task.FromResult(new List<string> { "U_Brand", "U_Channel" });
 
-    public Task<List<ForecastMemberDto>> GetForecastMembersAsync(ForecastBasis basis, string? udf, CancellationToken ct) => Task.FromResult(basis switch
+    public Task<List<ForecastMemberDto>> GetForecastMembersAsync(ForecastBasis basis, string? udf, string? group, CancellationToken ct) => Task.FromResult(basis switch
     {
         ForecastBasis.Dimension => BrandList.Select(b => new ForecastMemberDto(b.Code, b.Name)).ToList(),
         ForecastBasis.ItemGroup => Items.GroupBy(i => (i.Grp, i.GrpName)).Select(g => new ForecastMemberDto(g.Key.Grp, g.Key.GrpName)).ToList(),
-        ForecastBasis.Item => Items.Select(i => new ForecastMemberDto(i.Code, i.Name)).ToList(),
+        ForecastBasis.Item => Items.Where(i => string.IsNullOrEmpty(group) || i.Grp == group).Select(i => new ForecastMemberDto(i.Code, i.Name)).ToList(),
         ForecastBasis.ItemUdf => Items.Select(i => MemberOf(i, basis, udf)).Distinct().Select(m => new ForecastMemberDto(m.Code, m.Name)).ToList(),
         _ => new List<ForecastMemberDto>(),
     });

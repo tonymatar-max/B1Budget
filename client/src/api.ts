@@ -214,6 +214,8 @@ export interface ForecastReport {
   budgetVersionName: string | null
   rows: ForecastBrandRow[]
   actualsError: string | null
+  itemGroups: { code: string; name: string }[]
+  group: string
 }
 
 export interface JournalLine {
@@ -374,11 +376,12 @@ export const api = {
   group: (year: number, from?: number, to?: number, refresh = false, versions?: Record<number, number>) =>
     request<GroupReport>('GET', `/reports/group?year=${year}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}${refresh ? '&refresh=true' : ''}${
       versions && Object.keys(versions).length ? `&versions=${Object.entries(versions).map(([c, v]) => `${c}:${v}`).join(',')}` : ''}`),
-  forecast: (year?: number, basis: ForecastBasis = 'Dimension', udf = '', refresh = false) => {
+  forecast: (year?: number, basis: ForecastBasis = 'Dimension', udf = '', group = '', refresh = false) => {
     const q = new URLSearchParams()
     if (year) q.set('year', String(year))
     if (basis !== 'Dimension') q.set('basis', basis)
     if (udf) q.set('udf', udf)
+    if (group) q.set('group', group)
     if (refresh) q.set('refresh', 'true')
     return request<ForecastReport>('GET', `/forecast${q.toString() ? `?${q}` : ''}`)
   },
@@ -389,10 +392,11 @@ export const api = {
     if (udf) q.set('udf', udf)
     return request<void>('PUT', `/forecast/${year}/brands/${encodeURIComponent(brand)}${q.toString() ? `?${q}` : ''}`, { amounts })
   },
-  seedForecast: (year: number, basis: ForecastBasis = 'Dimension', udf = '', method: ForecastMethod = 'Budget', growth = 0, years = 3, refresh = false) => {
+  seedForecast: (year: number, basis: ForecastBasis = 'Dimension', udf = '', group = '', method: ForecastMethod = 'Budget', growth = 0, years = 3, refresh = false) => {
     const q = new URLSearchParams()
     if (basis !== 'Dimension') q.set('basis', basis)
     if (udf) q.set('udf', udf)
+    if (group) q.set('group', group)
     q.set('method', method)
     if (growth) q.set('growth', String(growth))
     if (method === 'PriorYearsAverage') q.set('years', String(years))

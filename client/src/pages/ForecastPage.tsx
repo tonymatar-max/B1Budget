@@ -27,6 +27,7 @@ export default function ForecastPage({ year }: { year?: number }) {
   const auth = useAuth()
   const [basis, setBasis] = useState<ForecastBasis>('Dimension')
   const [udf, setUdf] = useState('')
+  const [group, setGroup] = useState('')
   const [method, setMethod] = useState<ForecastMethod>('Budget')
   const [growth, setGrowth] = useState(5)
   const [avgYears, setAvgYears] = useState(3)
@@ -46,7 +47,7 @@ export default function ForecastPage({ year }: { year?: number }) {
   const load = async (refresh = false) => {
     setLoading(true); setError(null)
     try {
-      const r = await api.forecast(yearSel, basis, udf, refresh)
+      const r = await api.forecast(yearSel, basis, udf, group, refresh)
       // Item-UDF basis needs a field chosen: default to the first one B1 offers, which reloads.
       if (r.basis === 'ItemUdf' && !udf && r.udfFields.length) { setUdf(r.udfFields[0]); return }
       setReport(r)
@@ -56,7 +57,7 @@ export default function ForecastPage({ year }: { year?: number }) {
       setDirty(new Set()); setEditing({}); setExpanded(new Set())
     } catch (e) { setError((e as Error).message) } finally { setLoading(false) }
   }
-  useEffect(() => { load() }, [basis, udf, yearSel])
+  useEffect(() => { load() }, [basis, udf, group, yearSel])
   // The Budget method only exists on the cost-center basis with a baseline; move off it otherwise.
   useEffect(() => {
     if (report && !report.hasBudgetBaseline && method === 'Budget') setMethod('RunRate')
@@ -69,7 +70,7 @@ export default function ForecastPage({ year }: { year?: number }) {
   const mll = basis === 'ItemUdf' ? memberLabel : memberLabel.toLowerCase()
   const forecastOf = (b: string) => draft[b] ?? report?.rows.find(r => r.brand === b)?.forecast ?? Array(12).fill(0)
 
-  const changeBasis = (b: ForecastBasis) => { setReport(null); setUdf(''); setBasis(b) }
+  const changeBasis = (b: ForecastBasis) => { setReport(null); setUdf(''); setGroup(''); setBasis(b) }
 
   const setCell = (brand: string, i: number, raw: string) => {
     setEditing(e => ({ ...e, [`${brand}:${i}`]: raw }))
@@ -103,7 +104,7 @@ export default function ForecastPage({ year }: { year?: number }) {
     if (dirty.size && !confirm(`Seeding overwrites your rows (elapsed months = actuals; ${md.hint.toLowerCase()}). Unsaved edits will be lost. Continue?`)) return
     setSeeding(true)
     try {
-      const r = await api.seedForecast(fy, basis, udf, method, growth, avgYears, true)
+      const r = await api.seedForecast(fy, basis, udf, group, method, growth, avgYears, true)
       setToast({ kind: 'success', text: r.seeded ? `Seeded ${r.seeded} ${mll}${r.seeded > 1 ? 's' : ''} · ${md.label}.` : 'Nothing to seed — no actuals or prior-year data for these members.' })
       await load()
     } catch (e) { setToast({ kind: 'error', text: (e as Error).message }) } finally { setSeeding(false) }
@@ -144,6 +145,12 @@ export default function ForecastPage({ year }: { year?: number }) {
                 {report.udfFields.map(f => <option key={f} value={f}>{f}</option>)}
               </select>
             : <span className="status warn" title="No U_ fields found on the item master">No item UDFs</span>)}
+          {auth.isAdmin && basis === 'Item' && report && (
+            <select value={group} onChange={e => setGroup(e.target.value)} aria-label="Item group filter" title="Filter active items by item group">
+              <option value="">All item groups</option>
+              {report.itemGroups.map(g => <option key={g.code} value={g.code}>{g.name}</option>)}
+            </select>
+          )}
           {report && <>
             <select value={report.availableYears.includes(fy ?? 0) ? fy : ''}
               onChange={e => { if (e.target.value) setYearSel(Number(e.target.value)) }} aria-label="Fiscal year" title="Years with a budget, forecast, or recent">
