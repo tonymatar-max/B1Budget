@@ -195,23 +195,27 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
             _ => throw new InvalidOperationException("Item-based sales are only for item / item-group / item-UDF forecasts."),
         };
 
-        // Net sales = invoices − credit memos, by member and posting date. One stored query per basis.
-        string Branch(string lines, string header, decimal sign) =>
-            $"SELECT {member} AS Member, {name} AS MemberName, T0.DocDate AS D, SUM({(sign < 0 ? "-" : "")}T1.LineTotal) AS Amount " +
+        // Two plain line-level queries (no UNION / GROUP BY — the Service Layer's SQL validator rejects a combined
+        // grouped UNION, and plain SELECTs are portable across HANA and SQL Server). The app sums by period.
+        // Net sales = invoice lines minus credit-memo lines.
+        string Lines(string lines, string header) =>
+            $"SELECT {member} AS Member, {name} AS MemberName, T0.DocDate AS D, SUM(T1.LineTotal) AS Amount " +
             $"FROM {lines} T1 INNER JOIN {header} T0 ON T0.DocEntry = T1.DocEntry " +
             $"INNER JOIN OITM T2 ON T2.ItemCode = T1.ItemCode{join} " +
             "WHERE T0.DocDate >= :fromDate AND T0.DocDate <= :toDate " +
             $"GROUP BY {member}, {name}, T0.DocDate";
-        var sql = Branch("INV1", "OINV", 1) + " UNION ALL " + Branch("RIN1", "ORIN", -1);
+        var pars = new Dictionary<string, string> { ["fromDate"] = $"'{from:yyyy-MM-dd}'", ["toDate"] = $"'{to:yyyy-MM-dd}'" };
 
-        var qcode = $"NXBGT_SALE_{code}";
-        await sl.EnsureSqlQueryAsync(qcode, $"Cobalt Budget sales by member ({code})", sql, ct);
-        var rows = await sl.RunSqlQueryAsync(qcode, new Dictionary<string, string>
+        async Task<List<MemberSalesRow>> Fetch(string qcode, string doc, string lines, string header, decimal sign)
         {
-            ["fromDate"] = $"'{from:yyyy-MM-dd}'", ["toDate"] = $"'{to:yyyy-MM-dd}'",
-        }, ct);
-        var result = rows.Select(r => new MemberSalesRow(Str(r, "Member"), NullIfEmpty(Str(r, "MemberName")) ?? Str(r, "Member"), Date(r, "D"), Dec(r, "Amount")))
-            .Where(r => r.Member.Length > 0).ToList();
+            await sl.EnsureSqlQueryAsync(qcode, $"Cobalt Budget {doc} by member ({code})", Lines(lines, header), ct);
+            var rows = await sl.RunSqlQueryAsync(qcode, pars, ct);
+            return rows.Select(r => new MemberSalesRow(Str(r, "Member"), NullIfEmpty(Str(r, "MemberName")) ?? Str(r, "Member"), Date(r, "D"), sign * Dec(r, "Amount")))
+                .Where(r => r.Member.Length > 0).ToList();
+        }
+
+        var result = await Fetch($"NXBGT_INV_{code}", "invoices", "INV1", "OINV", 1m);
+        result.AddRange(await Fetch($"NXBGT_CRN_{code}", "credit memos", "RIN1", "ORIN", -1m));
         return (result, DateTime.UtcNow);
     }
 
