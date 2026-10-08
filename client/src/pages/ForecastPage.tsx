@@ -28,6 +28,7 @@ export default function ForecastPage({ year }: { year?: number }) {
   const [udf, setUdf] = useState('')
   const [method, setMethod] = useState<ForecastMethod>('Budget')
   const [growth, setGrowth] = useState(5)
+  const [yearText, setYearText] = useState('')
   const [yearSel, setYearSel] = useState<number | undefined>(year)
   const [report, setReport] = useState<ForecastReport | null>(null)
   const [loading, setLoading] = useState(false)
@@ -48,6 +49,7 @@ export default function ForecastPage({ year }: { year?: number }) {
       if (r.basis === 'ItemUdf' && !udf && r.udfFields.length) { setUdf(r.udfFields[0]); return }
       setReport(r)
       setYearSel(r.fiscalYear)
+      setYearText(String(r.fiscalYear))
       setDraft(Object.fromEntries(r.rows.map(row => [row.brand, [...row.forecast]])))
       setDirty(new Set()); setEditing({}); setExpanded(new Set())
     } catch (e) { setError((e as Error).message) } finally { setLoading(false) }
@@ -140,11 +142,18 @@ export default function ForecastPage({ year }: { year?: number }) {
                 {report.udfFields.map(f => <option key={f} value={f}>{f}</option>)}
               </select>
             : <span className="status warn" title="No U_ fields found on the item master">No item UDFs</span>)}
-          {report && report.availableYears.length > 0 && (
-            <select value={fy} onChange={e => setYearSel(Number(e.target.value))} aria-label="Fiscal year">
+          {report && <>
+            <select value={report.availableYears.includes(fy ?? 0) ? fy : ''}
+              onChange={e => { if (e.target.value) setYearSel(Number(e.target.value)) }} aria-label="Fiscal year" title="Years with a budget, forecast, or recent">
+              {!report.availableYears.includes(fy ?? 0) && <option value="">FY {fy}</option>}
               {report.availableYears.map(y => <option key={y} value={y}>FY {y}</option>)}
             </select>
-          )}
+            <input type="number" value={yearText} min={2000} max={2100} aria-label="Go to year" title="Type any year, then Enter"
+              style={{ width: 78 }}
+              onChange={e => setYearText(e.target.value)}
+              onBlur={() => { const y = Number(yearText); if (y >= 2000 && y <= 2100 && y !== fy) setYearSel(y) }}
+              onKeyDown={e => { if (e.key === 'Enter') { const y = Number(yearText); if (y >= 2000 && y <= 2100) setYearSel(y) } }} />
+          </>}
           <button disabled={loading} onClick={() => load(true)}>{loading ? 'Loading…' : 'Refresh actuals'}</button>
           {canEditAny && <>
             <select value={method} onChange={e => setMethod(e.target.value as ForecastMethod)} aria-label="Forecast method"
