@@ -36,8 +36,8 @@ public interface IB1Gateway : IDisposable
     /// <paramref name="group"/> code. Codes + display names.
     /// </summary>
     Task<List<ForecastMemberDto>> GetForecastMembersAsync(ForecastBasis basis, string? udf, string? group, CancellationToken ct);
-    /// <summary>Net sales (invoices − credit memos) per member per posting date for an item-based basis.</summary>
-    Task<(List<MemberSalesRow> Rows, DateTime AsOf)> GetSalesByMemberAsync(ForecastBasis basis, string? udf, DateTime from, DateTime to, CancellationToken ct);
+    /// <summary>Net sales (invoices − credit memos) per member per posting date for an item-based basis, as value or as units sold.</summary>
+    Task<(List<MemberSalesRow> Rows, DateTime AsOf)> GetSalesByMemberAsync(ForecastBasis basis, string? udf, ForecastMeasure measure, DateTime from, DateTime to, CancellationToken ct);
 
     Task<BudgetFieldMap> GetBudgetFieldMapAsync(CancellationToken ct);
     /// <summary>Find the budget scenario for this name + fiscal year without creating it.</summary>

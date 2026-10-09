@@ -140,6 +140,10 @@ public class PushItem
 /// </summary>
 public enum ForecastBasis { Dimension, ItemGroup, Item, ItemUdf }
 
+/// <summary>What a forecast figure measures: sales <see cref="Value"/> (currency) or sold <see cref="Quantity"/> (units).
+/// Quantity is only available on the <see cref="ForecastBasis.Item"/> basis.</summary>
+public enum ForecastMeasure { Value, Quantity }
+
 /// <summary>
 /// How Seed projects the not-yet-elapsed months of a sales forecast (elapsed months always come from actuals):
 /// <list type="bullet">
@@ -166,6 +170,7 @@ public class SalesForecast
     public int CompanyId { get; set; }
     public int FiscalYear { get; set; }
     public ForecastBasis Basis { get; set; } = ForecastBasis.Dimension;
+    public ForecastMeasure Measure { get; set; } = ForecastMeasure.Value;
     /// <summary>The item UDF name when <see cref="Basis"/> is <see cref="ForecastBasis.ItemUdf"/> (e.g. "U_Brand"); otherwise empty.</summary>
     public string UdfName { get; set; } = "";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

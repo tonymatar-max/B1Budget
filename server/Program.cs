@@ -86,8 +86,10 @@ using (var scope = app.Services.CreateScope())
     {
         AddColumn("Forecasts", "Basis", "INTEGER NOT NULL DEFAULT 0");
         AddColumn("Forecasts", "UdfName", "TEXT NOT NULL DEFAULT ''");
+        AddColumn("Forecasts", "Measure", "INTEGER NOT NULL DEFAULT 0");
         db.Database.ExecuteSqlRaw("drop index if exists IX_Forecasts_CompanyId_FiscalYear");
-        db.Database.ExecuteSqlRaw("create unique index if not exists IX_Forecasts_CompanyId_FiscalYear_Basis_UdfName on Forecasts (CompanyId, FiscalYear, Basis, UdfName)");
+        db.Database.ExecuteSqlRaw("drop index if exists IX_Forecasts_CompanyId_FiscalYear_Basis_UdfName");
+        db.Database.ExecuteSqlRaw("create unique index if not exists IX_Forecasts_CompanyId_FiscalYear_Basis_UdfName_Measure on Forecasts (CompanyId, FiscalYear, Basis, UdfName, Measure)");
     }
     db.Database.ExecuteSqlRaw("update Versions set FamilyId = Id where FamilyId = 0");
 

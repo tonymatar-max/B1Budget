@@ -226,16 +226,16 @@ public class ReportService(AppDbContext db, GatewayFactory factory, IMemoryCache
 
     /// <summary>Net sales per member (name + 12 periods) for an item-based forecast basis, cached for 5 minutes.</summary>
     public async Task<(Dictionary<string, (string Name, decimal[] Amounts)> ByMember, DateTime AsOf)> SalesByMemberAsync(
-        Company c, ForecastBasis basis, string udf, int year, bool refresh, CancellationToken ct)
+        Company c, ForecastBasis basis, string udf, ForecastMeasure measure, int year, bool refresh, CancellationToken ct)
     {
         var cal = new FiscalCalendar(c.FiscalYearStartMonth);
-        var key = $"salemem:{c.Id}:{c.Mode}:{c.CompanyDb}:{basis}:{udf}:{year}:{c.FiscalYearStartMonth}";
+        var key = $"salemem:{c.Id}:{c.Mode}:{c.CompanyDb}:{basis}:{udf}:{measure}:{year}:{c.FiscalYearStartMonth}";
         if (refresh) cache.Remove(key);
         var (rows, asOf) = await cache.GetOrCreateAsync(key, async e =>
         {
             e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
             using var gw = factory.Create(c);
-            return await gw.GetSalesByMemberAsync(basis, udf, cal.YearStart(year), cal.PeriodEnd(year, 12), ct);
+            return await gw.GetSalesByMemberAsync(basis, udf, measure, cal.YearStart(year), cal.PeriodEnd(year, 12), ct);
         });
         var map = new Dictionary<string, (string Name, decimal[] Amounts)>();
         foreach (var r in rows)

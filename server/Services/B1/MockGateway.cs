@@ -87,7 +87,10 @@ public class MockGateway(int companyId) : IB1Gateway
         _ => new List<ForecastMemberDto>(),
     });
 
-    public Task<(List<MemberSalesRow> Rows, DateTime AsOf)> GetSalesByMemberAsync(ForecastBasis basis, string? udf, DateTime from, DateTime to, CancellationToken ct)
+    // Demo unit price per item group, so quantity = value / price (whole units).
+    private static decimal UnitPrice(ItemDef it) => it.Grp switch { "FOOT" => 120m, "APP" => 40m, _ => 8m };
+
+    public Task<(List<MemberSalesRow> Rows, DateTime AsOf)> GetSalesByMemberAsync(ForecastBasis basis, string? udf, ForecastMeasure measure, DateTime from, DateTime to, CancellationToken ct)
     {
         var rows = new List<MemberSalesRow>();
         var companyScale = 1m + (companyId - 1) * 0.35m;
@@ -101,6 +104,7 @@ public class MockGateway(int companyId) : IB1Gateway
                 var seasonal = 1 + 0.25 * Math.Sin((d.Month - 3) / 12.0 * 2 * Math.PI) + (d.Month is 11 or 12 ? 0.3 : 0);
                 var noise = 0.75 + (Hash(it.Code, "", d) % 50) / 100.0;
                 var amt = Math.Round(it.MonthlyBase / 26m * (decimal)(seasonal * noise) * companyScale, 2);
+                if (measure == ForecastMeasure.Quantity) amt = Math.Round(amt / UnitPrice(it), 0);
                 if (amt != 0) rows.Add(new MemberSalesRow(code, name, d, amt));
             }
         }

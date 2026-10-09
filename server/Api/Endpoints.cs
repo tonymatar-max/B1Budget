@@ -511,12 +511,33 @@ public static class Endpoints
 
         static ForecastBasis ParseBasis(string? s) =>
             Enum.TryParse<ForecastBasis>(s, true, out var b) ? b : ForecastBasis.Dimension;
+        static ForecastMeasure ParseMeasure(string? s) =>
+            Enum.TryParse<ForecastMeasure>(s, true, out var m) ? m : ForecastMeasure.Value;
 
-        api.MapGet("/forecast", async (int? year, string? basis, string? udf, string? group, bool? refresh, ForecastService forecast, AccessService access, CancellationToken ct) =>
+        api.MapGet("/forecast", async (int? year, string? basis, string? udf, string? group, string? measure, bool? refresh, ForecastService forecast, AccessService access, CancellationToken ct) =>
         {
             var c = await access.CompanyAsync();
             var scope = await access.ScopeAsync();
-            return Results.Ok(await forecast.GetAsync(c, year, ParseBasis(basis), udf, group, refresh ?? false, scope, ct));
+            return Results.Ok(await forecast.GetAsync(c, year, ParseBasis(basis), udf, group, ParseMeasure(measure), refresh ?? false, scope, ct));
+        });
+
+        // Excel round-trip: download the grid for a year/basis/measure, edit it, upload it back.
+        api.MapGet("/forecast/{year:int}/export", async (int year, string? basis, string? udf, string? group, string? measure,
+            ForecastService forecast, AccessService access, CancellationToken ct) =>
+        {
+            var c = await access.CompanyAsync();
+            var (bytes, name) = await forecast.ExportAsync(c, year, ParseBasis(basis), udf, group, ParseMeasure(measure), await access.ScopeAsync(), ct);
+            return Results.File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", name);
+        });
+
+        api.MapPost("/forecast/{year:int}/import", async (int year, string? basis, string? udf, string? measure, HttpRequest req,
+            ForecastService forecast, AccessService access, CancellationToken ct) =>
+        {
+            var c = await access.CompanyAsync();
+            if (!req.HasFormContentType || req.Form.Files.Count == 0) return Results.BadRequest(new { message = "Choose an .xlsx file to import." });
+            using var stream = req.Form.Files[0].OpenReadStream();
+            var r = await forecast.ImportAsync(c, year, ParseBasis(basis), udf, ParseMeasure(measure), stream, await access.ScopeAsync(), ct);
+            return Results.Ok(new { imported = r.Imported, skipped = r.Skipped, errors = r.Errors });
         });
 
         // List the item user-defined fields (U_…) a forecast can be grouped by.
@@ -528,21 +549,21 @@ public static class Endpoints
             return Results.Ok(await gw.GetItemUdfFieldsAsync(ct));
         });
 
-        api.MapPut("/forecast/{year:int}/brands/{brand}", async (int year, string brand, string? basis, string? udf, SaveForecastLineRequest r,
+        api.MapPut("/forecast/{year:int}/brands/{brand}", async (int year, string brand, string? basis, string? udf, string? measure, SaveForecastLineRequest r,
             ForecastService forecast, AccessService access, CancellationToken ct) =>
         {
             var c = await access.CompanyAsync();
-            await forecast.SaveMemberAsync(c, year, ParseBasis(basis), udf, brand, r.Amounts ?? new decimal[12], await access.ScopeAsync(), ct);
+            await forecast.SaveMemberAsync(c, year, ParseBasis(basis), udf, ParseMeasure(measure), brand, r.Amounts ?? new decimal[12], await access.ScopeAsync(), ct);
             return Results.Ok();
         });
 
-        api.MapPost("/forecast/{year:int}/seed", async (int year, string? basis, string? udf, string? group, string? method, decimal? growth, int? years, bool? refresh,
+        api.MapPost("/forecast/{year:int}/seed", async (int year, string? basis, string? udf, string? group, string? measure, string? method, decimal? growth, int? years, bool? refresh,
             ForecastService forecast, AccessService access, CancellationToken ct) =>
         {
             var c = await access.CompanyAsync();
             var scope = await access.ScopeAsync();
             var m = Enum.TryParse<ForecastMethod>(method, true, out var fm) ? fm : ForecastMethod.Budget;
-            var seeded = await forecast.SeedAsync(c, year, ParseBasis(basis), udf, group, m, growth ?? 0m, years ?? 3, scope, refresh ?? false, ct);
+            var seeded = await forecast.SeedAsync(c, year, ParseBasis(basis), udf, group, ParseMeasure(measure), m, growth ?? 0m, years ?? 3, scope, refresh ?? false, ct);
             return Results.Ok(new { seeded = seeded.Count, brands = seeded });
         });
 

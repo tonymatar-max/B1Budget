@@ -185,6 +185,7 @@ export interface BvaReport {
 }
 
 export type ForecastBasis = 'Dimension' | 'ItemGroup' | 'Item' | 'ItemUdf'
+export type ForecastMeasure = 'Value' | 'Quantity'
 export type ForecastMethod = 'Budget' | 'RunRate' | 'PriorYearGrowth' | 'SeasonalRunRate' | 'LinearTrend' | 'PriorYearsAverage'
 export interface ForecastBrandRow {
   brand: string
@@ -216,6 +217,7 @@ export interface ForecastReport {
   actualsError: string | null
   itemGroups: { code: string; name: string }[]
   group: string
+  measure: ForecastMeasure
 }
 
 export interface JournalLine {
@@ -376,27 +378,56 @@ export const api = {
   group: (year: number, from?: number, to?: number, refresh = false, versions?: Record<number, number>) =>
     request<GroupReport>('GET', `/reports/group?year=${year}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}${refresh ? '&refresh=true' : ''}${
       versions && Object.keys(versions).length ? `&versions=${Object.entries(versions).map(([c, v]) => `${c}:${v}`).join(',')}` : ''}`),
-  forecast: (year?: number, basis: ForecastBasis = 'Dimension', udf = '', group = '', refresh = false) => {
+  forecast: (year?: number, basis: ForecastBasis = 'Dimension', udf = '', group = '', measure: ForecastMeasure = 'Value', refresh = false) => {
     const q = new URLSearchParams()
     if (year) q.set('year', String(year))
     if (basis !== 'Dimension') q.set('basis', basis)
     if (udf) q.set('udf', udf)
     if (group) q.set('group', group)
+    if (measure !== 'Value') q.set('measure', measure)
     if (refresh) q.set('refresh', 'true')
     return request<ForecastReport>('GET', `/forecast${q.toString() ? `?${q}` : ''}`)
   },
-  itemUdfs: () => request<string[]>('GET', '/forecast/item-udfs'),
-  saveForecastLine: (year: number, brand: string, amounts: number[], basis: ForecastBasis = 'Dimension', udf = '') => {
-    const q = new URLSearchParams()
-    if (basis !== 'Dimension') q.set('basis', basis)
-    if (udf) q.set('udf', udf)
-    return request<void>('PUT', `/forecast/${year}/brands/${encodeURIComponent(brand)}${q.toString() ? `?${q}` : ''}`, { amounts })
-  },
-  seedForecast: (year: number, basis: ForecastBasis = 'Dimension', udf = '', group = '', method: ForecastMethod = 'Budget', growth = 0, years = 3, refresh = false) => {
+  /** Download the forecast grid as .xlsx. Uses fetch (not a plain link) so the active-company header is sent. */
+  exportForecast: async (year: number, basis: ForecastBasis, udf: string, group: string, measure: ForecastMeasure) => {
     const q = new URLSearchParams()
     if (basis !== 'Dimension') q.set('basis', basis)
     if (udf) q.set('udf', udf)
     if (group) q.set('group', group)
+    if (measure !== 'Value') q.set('measure', measure)
+    const res = await fetch(`/api/forecast/${year}/export${q.toString() ? `?${q}` : ''}`, { headers: companyId ? { 'X-Company-Id': String(companyId) } : {} })
+    if (!res.ok) {
+      let msg = `${res.status} ${res.statusText}`
+      try { msg = (await res.json()).message ?? msg } catch { /* not JSON */ }
+      throw new Error(msg)
+    }
+    const cd = res.headers.get('Content-Disposition') ?? ''
+    const name = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(cd)?.[1]
+    return { blob: await res.blob(), name: name ? decodeURIComponent(name) : `Forecast_${year}.xlsx` }
+  },
+  importForecast: (year: number, basis: ForecastBasis, udf: string, measure: ForecastMeasure, file: File) => {
+    const q = new URLSearchParams()
+    if (basis !== 'Dimension') q.set('basis', basis)
+    if (udf) q.set('udf', udf)
+    if (measure !== 'Value') q.set('measure', measure)
+    const fd = new FormData()
+    fd.append('file', file)
+    return request<{ imported: number; skipped: number; errors: string[] }>('POST', `/forecast/${year}/import${q.toString() ? `?${q}` : ''}`, fd)
+  },
+  itemUdfs: () => request<string[]>('GET', '/forecast/item-udfs'),
+  saveForecastLine: (year: number, brand: string, amounts: number[], basis: ForecastBasis = 'Dimension', udf = '', measure: ForecastMeasure = 'Value') => {
+    const q = new URLSearchParams()
+    if (basis !== 'Dimension') q.set('basis', basis)
+    if (udf) q.set('udf', udf)
+    if (measure !== 'Value') q.set('measure', measure)
+    return request<void>('PUT', `/forecast/${year}/brands/${encodeURIComponent(brand)}${q.toString() ? `?${q}` : ''}`, { amounts })
+  },
+  seedForecast: (year: number, basis: ForecastBasis = 'Dimension', udf = '', group = '', measure: ForecastMeasure = 'Value', method: ForecastMethod = 'Budget', growth = 0, years = 3, refresh = false) => {
+    const q = new URLSearchParams()
+    if (basis !== 'Dimension') q.set('basis', basis)
+    if (udf) q.set('udf', udf)
+    if (group) q.set('group', group)
+    if (measure !== 'Value') q.set('measure', measure)
     q.set('method', method)
     if (growth) q.set('growth', String(growth))
     if (method === 'PriorYearsAverage') q.set('years', String(years))

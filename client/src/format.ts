@@ -3,6 +3,9 @@ const num2 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximu
 
 export const fmt = (n: number) => num0.format(Math.round(n))
 export const fmt2 = (n: number) => num2.format(n)
+const numQ = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 })
+/** Quantities (units): keeps up to 2 decimals instead of rounding to whole numbers. */
+export const fq = (n: number) => numQ.format(n)
 export const pct = (n: number | null) => (n === null || !isFinite(n) ? '—' : `${n.toFixed(1)}%`)
 
 /** Short money: 1.2M, 340K. */

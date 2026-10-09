@@ -189,7 +189,7 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
         }
     }
 
-    public async Task<(List<MemberSalesRow> Rows, DateTime AsOf)> GetSalesByMemberAsync(ForecastBasis basis, string? udf, DateTime from, DateTime to, CancellationToken ct)
+    public async Task<(List<MemberSalesRow> Rows, DateTime AsOf)> GetSalesByMemberAsync(ForecastBasis basis, string? udf, ForecastMeasure measure, DateTime from, DateTime to, CancellationToken ct)
     {
         // member/name column expressions and the join for each basis
         var (member, name, join, code) = basis switch
@@ -203,8 +203,11 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
         // Two plain line-level queries (no UNION / GROUP BY — the Service Layer's SQL validator rejects a combined
         // grouped UNION, and plain SELECTs are portable across HANA and SQL Server). The app sums by period.
         // Net sales = invoice lines minus credit-memo lines.
+        // Value = line total; Quantity = units sold (INV1/RIN1.Quantity). Separate stored queries per measure.
+        var col = measure == ForecastMeasure.Quantity ? "T1.Quantity" : "T1.LineTotal";
+        var qs = measure == ForecastMeasure.Quantity ? "_Q" : "";
         string Lines(string lines, string header) =>
-            $"SELECT {member} AS Member, {name} AS MemberName, T0.DocDate AS D, SUM(T1.LineTotal) AS Amount " +
+            $"SELECT {member} AS Member, {name} AS MemberName, T0.DocDate AS D, SUM({col}) AS Amount " +
             $"FROM {lines} T1 INNER JOIN {header} T0 ON T0.DocEntry = T1.DocEntry " +
             $"INNER JOIN OITM T2 ON T2.ItemCode = T1.ItemCode{join} " +
             "WHERE T0.DocDate >= :fromDate AND T0.DocDate <= :toDate " +
@@ -219,8 +222,8 @@ public class ServiceLayerGateway(ServiceLayerClient sl, string? fieldMapOverride
                 .Where(r => r.Member.Length > 0).ToList();
         }
 
-        var result = await Fetch($"NXBGT_INV_{code}", "invoices", "INV1", "OINV", 1m);
-        result.AddRange(await Fetch($"NXBGT_CRN_{code}", "credit memos", "RIN1", "ORIN", -1m));
+        var result = await Fetch($"NXBGT_INV_{code}{qs}", "invoices", "INV1", "OINV", 1m);
+        result.AddRange(await Fetch($"NXBGT_CRN_{code}{qs}", "credit memos", "RIN1", "ORIN", -1m));
         return (result, DateTime.UtcNow);
     }
 
