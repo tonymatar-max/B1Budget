@@ -187,6 +187,35 @@ export interface BvaReport {
 export type ForecastBasis = 'Dimension' | 'ItemGroup' | 'Item' | 'ItemUdf'
 export type ForecastMeasure = 'Value' | 'Quantity'
 export type ForecastMethod = 'Budget' | 'RunRate' | 'PriorYearGrowth' | 'SeasonalRunRate' | 'LinearTrend' | 'PriorYearsAverage'
+/** Approval state + permitted actions for one approval unit of a forecast (a cost center, or the whole grid). */
+export interface ForecastFlow {
+  status: DeptStatus
+  submittedBy: string | null
+  submittedAt: string | null
+  approver: string | null
+  decidedBy: string | null
+  decidedAt: string | null
+  comment: string | null
+  canSubmit: boolean
+  canApprove: boolean
+  canReject: boolean
+  canReopen: boolean
+}
+export interface ForecastInboxItem {
+  forecastId: number
+  year: number
+  basis: ForecastBasis
+  udf: string
+  measure: ForecastMeasure
+  member: string
+  memberName: string
+  companyId: number
+  companyName: string
+  submittedBy: string | null
+  submittedAt: string | null
+  comment: string | null
+  assignedToMe: boolean
+}
 export interface ForecastBrandRow {
   brand: string
   brandName: string
@@ -194,6 +223,7 @@ export interface ForecastBrandRow {
   forecast: number[]
   budget: number[]
   actual: number[]
+  flow: ForecastFlow
 }
 export interface ForecastReport {
   companyId: number
@@ -218,6 +248,8 @@ export interface ForecastReport {
   itemGroups: { code: string; name: string }[]
   group: string
   measure: ForecastMeasure
+  /** Approval of the whole forecast (item-based bases); null on the cost-center basis, where each row has its own. */
+  whole: ForecastFlow | null
 }
 
 export interface JournalLine {
@@ -414,6 +446,23 @@ export const api = {
     fd.append('file', file)
     return request<{ imported: number; skipped: number; errors: string[] }>('POST', `/forecast/${year}/import${q.toString() ? `?${q}` : ''}`, fd)
   },
+  forecastAction: (year: number, action: 'submit' | 'approve' | 'reject' | 'reopen', member: string, basis: ForecastBasis, udf: string, measure: ForecastMeasure, comment?: string) => {
+    const q = new URLSearchParams()
+    if (basis === 'Dimension') q.set('member', member)
+    if (basis !== 'Dimension') q.set('basis', basis)
+    if (udf) q.set('udf', udf)
+    if (measure !== 'Value') q.set('measure', measure)
+    return request<void>('POST', `/forecast/${year}/approval/${action}${q.toString() ? `?${q}` : ''}`, { comment: comment ?? null })
+  },
+  forecastEvents: (year: number, member: string, basis: ForecastBasis, udf: string, measure: ForecastMeasure) => {
+    const q = new URLSearchParams()
+    if (basis === 'Dimension') q.set('member', member)
+    if (basis !== 'Dimension') q.set('basis', basis)
+    if (udf) q.set('udf', udf)
+    if (measure !== 'Value') q.set('measure', measure)
+    return request<DeptEvent[]>('GET', `/forecast/${year}/approval/events${q.toString() ? `?${q}` : ''}`)
+  },
+  forecastInbox: () => request<ForecastInboxItem[]>('GET', '/approvals/forecast-inbox'),
   itemUdfs: () => request<string[]>('GET', '/forecast/item-udfs'),
   saveForecastLine: (year: number, brand: string, amounts: number[], basis: ForecastBasis = 'Dimension', udf = '', measure: ForecastMeasure = 'Value') => {
     const q = new URLSearchParams()
@@ -432,7 +481,7 @@ export const api = {
     if (growth) q.set('growth', String(growth))
     if (method === 'PriorYearsAverage') q.set('years', String(years))
     if (refresh) q.set('refresh', 'true')
-    return request<{ seeded: number; brands: string[] }>('POST', `/forecast/${year}/seed${q.toString() ? `?${q}` : ''}`)
+    return request<{ seeded: number; brands: string[]; locked: number }>('POST', `/forecast/${year}/seed${q.toString() ? `?${q}` : ''}`)
   },
   drill: (versionId: number, brand: string, account: string, from: number, to: number) =>
     request<JournalLine[]>('GET', `/reports/drill?versionId=${versionId}&brand=${encodeURIComponent(brand)}&account=${encodeURIComponent(account)}&from=${from}&to=${to}`),

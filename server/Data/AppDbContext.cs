@@ -15,6 +15,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<BudgetLine> Lines => Set<BudgetLine>();
     public DbSet<SalesForecast> Forecasts => Set<SalesForecast>();
     public DbSet<SalesForecastLine> ForecastLines => Set<SalesForecastLine>();
+    public DbSet<ForecastStatus> ForecastStatuses => Set<ForecastStatus>();
+    public DbSet<ForecastEvent> ForecastEvents => Set<ForecastEvent>();
     public DbSet<PushRun> PushRuns => Set<PushRun>();
     public DbSet<PushItem> PushItems => Set<PushItem>();
     public DbSet<AppUser> Users => Set<AppUser>();
@@ -53,6 +55,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<SalesForecast>().HasIndex(f => new { f.CompanyId, f.FiscalYear, f.Basis, f.UdfName, f.Measure }).IsUnique();
         b.Entity<SalesForecast>().HasMany(f => f.Lines).WithOne().HasForeignKey(l => l.ForecastId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<SalesForecastLine>().HasIndex(l => new { l.ForecastId, l.BrandCode }).IsUnique();
+        b.Entity<ForecastStatus>().HasIndex(s => new { s.ForecastId, s.MemberCode }).IsUnique();
+        b.Entity<ForecastEvent>().HasIndex(e => new { e.ForecastId, e.MemberCode });
         b.Entity<SalesForecastLine>().Property(l => l.Amounts).HasConversion(amountsConverter, amountsComparer);
 
         b.Entity<PushRun>().HasMany(r => r.Items).WithOne().HasForeignKey(i => i.RunId).OnDelete(DeleteBehavior.Cascade);

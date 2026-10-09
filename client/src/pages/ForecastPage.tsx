@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ForecastReport, type ForecastBasis, type ForecastMethod, type ForecastMeasure } from '../api'
+import { api, type DeptEvent, type DeptView, type ForecastFlow, type ForecastReport, type ForecastBasis, type ForecastMethod, type ForecastMeasure } from '../api'
 import { useAuth } from '../auth'
 import { fmt, fq, parseAmount, pct, short, sum, when } from '../format'
-import { Empty, useToast } from '../ui'
+import { DeptActions, DeptPill } from '../DeptActions'
+import { Empty, Modal, useToast } from '../ui'
 
 /** Favourable sales variance is positive: forecasting/selling more than budget is good. */
 const vsBudget = (forecast: number, budget: number) => forecast - budget
@@ -23,12 +24,14 @@ const METHODS: { value: ForecastMethod; label: string; needsGrowth?: boolean; ne
   { value: 'LinearTrend', label: 'Linear trend', hint: 'Remaining months = straight-line regression through the elapsed months' },
 ]
 
-export default function ForecastPage({ year }: { year?: number }) {
+export default function ForecastPage({ year, basis: basisProp, measure: measureProp, udf: udfProp }: {
+  year?: number; basis?: ForecastBasis; measure?: ForecastMeasure; udf?: string
+}) {
   const auth = useAuth()
-  const [basis, setBasis] = useState<ForecastBasis>('Dimension')
-  const [udf, setUdf] = useState('')
+  const [basis, setBasis] = useState<ForecastBasis>(basisProp ?? 'Dimension')
+  const [udf, setUdf] = useState(udfProp ?? '')
   const [group, setGroup] = useState('')
-  const [measure, setMeasure] = useState<ForecastMeasure>('Value')
+  const [measure, setMeasure] = useState<ForecastMeasure>(measureProp ?? 'Value')
   const [method, setMethod] = useState<ForecastMethod>('Budget')
   const [growth, setGrowth] = useState(5)
   const [avgYears, setAvgYears] = useState(3)
@@ -44,6 +47,7 @@ export default function ForecastPage({ year }: { year?: number }) {
   const [saving, setSaving] = useState(false)
   const [seeding, setSeeding] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [history, setHistory] = useState<{ member: string; label: string } | null>(null)
   const [importErrors, setImportErrors] = useState<string[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const [, setToast, toastNode] = useToast()
@@ -113,9 +117,37 @@ export default function ForecastPage({ year }: { year?: number }) {
     setSeeding(true)
     try {
       const r = await api.seedForecast(fy, basis, udf, group, measure, method, growth, avgYears, true)
-      setToast({ kind: 'success', text: r.seeded ? `Seeded ${r.seeded} ${mll}${r.seeded > 1 ? 's' : ''} · ${md.label}.` : 'Nothing to seed — no actuals or prior-year data for these members.' })
+      const lockedNote = r.locked ? ` ${r.locked} locked ${mll}${r.locked > 1 ? 's were' : ' was'} skipped.` : ''
+      setToast({
+        kind: 'success',
+        text: r.seeded ? `Seeded ${r.seeded} ${mll}${r.seeded > 1 ? 's' : ''} · ${md.label}.${lockedNote}`
+          : r.locked ? `Nothing to seed — the ${mll}${r.locked > 1 ? 's are' : ' is'} submitted or approved (locked).`
+          : 'Nothing to seed — no actuals or prior-year data for these members.',
+      })
       await load()
     } catch (e) { setToast({ kind: 'error', text: (e as Error).message }) } finally { setSeeding(false) }
+  }
+
+  // ---- approval workflow: per cost center, or the whole grid on item-based bases
+  const perMember = basis === 'Dimension'
+  const whole = report?.whole ?? null
+  const flowDone = (msg: string) => { setToast({ kind: 'success', text: msg }); load() }
+  const flowFail = (msg: string) => setToast({ kind: 'error', text: msg })
+  const asDept = (brand: string, brandName: string, f: ForecastFlow): Pick<DeptView, 'brand' | 'brandName' | 'status' | 'approver' | 'submittedBy' | 'canSubmit' | 'canApprove' | 'canReject' | 'canReopen'> =>
+    ({ brand, brandName, status: f.status,
+      // Item-based forecasts are admin-only, so before a submission the approver is "an administrator", not the user's manager.
+      approver: f.approver ?? (basis === 'Dimension' ? null : 'an administrator'), submittedBy: f.submittedBy, canSubmit: f.canSubmit, canApprove: f.canApprove, canReject: f.canReject, canReopen: f.canReopen })
+  const performFor = (member: string) => async (action: 'submit' | 'approve' | 'reject' | 'reopen', comment?: string) => {
+    await api.forecastAction(fy!, action, member, basis, udf, measure, comment)
+  }
+  /** Save unsaved figures first, so what gets submitted is what is on screen. Returning false cancels the submission. */
+  const saveBefore = (units: string[]) => async () => {
+    const todo = units.filter(u => dirty.has(u))
+    if (!fy || todo.length === 0) return true
+    try {
+      for (const u of todo) await api.saveForecastLine(fy, u, forecastOf(u), basis, udf, measure)
+      return true
+    } catch (e) { setToast({ kind: 'error', text: (e as Error).message }); return false }
   }
 
   const exportExcel = async () => {
@@ -240,6 +272,13 @@ export default function ForecastPage({ year }: { year?: number }) {
           <button className="link small" onClick={() => setImportErrors([])}>Dismiss</button>
         </div>
       )}
+      {!perMember && whole && whole.status !== 'Draft' && report && report.rows.length > 0 && (
+        <div className="banner info">
+          {whole.status === 'Submitted' && <>Waiting for approval by {whole.approver ?? 'an administrator'} — locked until it is approved, rejected or reopened.</>}
+          {whole.status === 'Approved' && <>Approved by {whole.decidedBy} — locked. An approver or administrator can reopen it.</>}
+          {whole.status === 'Rejected' && <>Rejected by {whole.decidedBy}{whole.comment ? `: “${whole.comment}”` : ''} — make the changes and submit it again.</>}
+        </div>
+      )}
       {report?.actualsError && <div className="banner warn">Couldn't read actual sales from SAP B1: {report.actualsError}</div>}
       {!report && !error && <div className="empty">Loading forecast…</div>}
       {report && report.rows.length === 0 && !loading && (
@@ -284,7 +323,13 @@ export default function ForecastPage({ year }: { year?: number }) {
             <h2>By {mll}</h2>
             <span className="muted small">shaded months are elapsed (actuals) · click a row to compare with {hasBudget ? 'budget & actual' : 'actual'}</span>
             <div className="grow" />
-            {!canEditAny && <span className="status neutral">Read-only</span>}
+            {!perMember && whole && <>
+              <DeptPill status={whole.status} />
+              <DeptActions dept={asDept('Forecast', 'Forecast', whole)} noun="forecast" what="this forecast" perform={performFor('*')}
+                onDone={flowDone} onError={flowFail} beforeSubmit={saveBefore(report.rows.map(r => r.brand))} />
+              <button className="link small" onClick={() => setHistory({ member: '*', label: 'Whole forecast' })}>History</button>
+            </>}
+            {!canEditAny && perMember && <span className="status neutral">Locked</span>}
           </div>
           <div className="panel-body table-wrap">
             <table className="data">
@@ -294,6 +339,7 @@ export default function ForecastPage({ year }: { year?: number }) {
                   {report.periodLabels.map((p, i) => <th key={i} className={`num${i < elapsed ? ' past' : ''}`} style={{ minWidth: 88 }}>{p}</th>)}
                   <th className="num">FY total</th>
                   {hasBudget && <th className="num">vs budget</th>}
+                  {perMember && <th>Approval</th>}
                 </tr>
               </thead>
               <tbody>
@@ -308,7 +354,7 @@ export default function ForecastPage({ year }: { year?: number }) {
                       <td>
                         <button className="link" onClick={toggle} style={{ marginRight: 4 }}>{isOpen ? '▾' : '▸'}</button>
                         <span className="code">{row.brand}</span> <span className="muted">{row.brandName}</span>
-                        {!row.canEdit && <span className="small muted"> · read-only</span>}
+                        {!row.canEdit && <span className="small muted"> · locked</span>}
                       </td>
                       {f.map((amt, i) => (
                         <td key={i} className={`num${i < elapsed ? ' past' : ''}`}>
@@ -321,19 +367,31 @@ export default function ForecastPage({ year }: { year?: number }) {
                       ))}
                       <td className="num"><strong>{nf(ftot)}</strong></td>
                       {hasBudget && <td className={`num ${v > 0.5 ? 'ok' : v < -0.5 ? 'bad' : ''}`}>{v > 0 ? '+' : ''}{nf(v)}</td>}
+                      {perMember && (
+                        <td onClick={e => e.stopPropagation()}>
+                          <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                            <DeptPill status={row.flow.status} />
+                            <DeptActions compact dept={asDept(row.brand, row.brandName, row.flow)} noun="forecast" perform={performFor(row.brand)}
+                              onDone={flowDone} onError={flowFail} beforeSubmit={saveBefore([row.brand])} />
+                            <button className="link small" onClick={() => setHistory({ member: row.brand, label: `${row.brand} · ${row.brandName}` })}>History</button>
+                          </div>
+                          {row.flow.status === 'Rejected' && row.flow.comment && <div className="small bad">“{row.flow.comment}”</div>}
+                          {row.flow.status === 'Submitted' && <div className="small muted">with {row.flow.approver}</div>}
+                        </td>
+                      )}
                     </tr>,
                     ...(isOpen ? [
                       ...(hasBudget ? [
                         <tr key={row.brand + 'b'} className="subtotal">
                           <td style={{ paddingLeft: 28 }}>Budget</td>
                           {row.budget.map((x, i) => <td key={i} className="num muted">{x ? nf(x) : ''}</td>)}
-                          <td className="num muted">{nf(btot)}</td><td />
+                          <td className="num muted">{nf(btot)}</td><td />{perMember && <td />}
                         </tr>,
                       ] : []),
                       <tr key={row.brand + 'a'} className="subtotal">
                         <td style={{ paddingLeft: 28 }}>Actual</td>
                         {row.actual.map((x, i) => <td key={i} className={`num muted${i < elapsed ? '' : ' faint'}`}>{x ? nf(x) : ''}</td>)}
-                        <td className="num muted">{nf(sum(row.actual, 0, elapsed))}</td>{hasBudget && <td />}
+                        <td className="num muted">{nf(sum(row.actual, 0, elapsed))}</td>{hasBudget && <td />}{perMember && <td />}
                       </tr>,
                     ] : []),
                   ]
@@ -345,6 +403,7 @@ export default function ForecastPage({ year }: { year?: number }) {
                   {hasBudget && <td className={`num ${totals.forecast - totals.budget >= 0 ? 'ok' : 'bad'}`}>
                     {totals.forecast - totals.budget >= 0 ? '+' : ''}{nf(totals.forecast - totals.budget)}
                   </td>}
+                  {perMember && <td />}
                 </tr>
               </tbody>
             </table>
@@ -356,7 +415,34 @@ export default function ForecastPage({ year }: { year?: number }) {
           {' '}The forecast is app-only — it is not pushed to SAP B1.
         </div>
       </>}
+      {history && fy && (
+        <HistoryDialog year={fy} member={history.member} label={history.label} basis={basis} udf={udf} measure={measure} onClose={() => setHistory(null)} />
+      )}
       {toastNode}
     </div>
+  )
+}
+
+/** The approval audit trail of one cost center (or the whole forecast): who submitted, approved, rejected or reopened, and when. */
+function HistoryDialog({ year, member, label, basis, udf, measure, onClose }: {
+  year: number; member: string; label: string; basis: ForecastBasis; udf: string; measure: ForecastMeasure; onClose: () => void
+}) {
+  const [events, setEvents] = useState<DeptEvent[] | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => { api.forecastEvents(year, member, basis, udf, measure).then(setEvents).catch(e => setErr(e.message)) }, [])
+  return (
+    <Modal title={`Approval history · ${label}`} onClose={onClose} footer={<button className="primary" onClick={onClose}>Close</button>}>
+      {err && <div className="banner error">{err}</div>}
+      {!events && !err && <div className="empty">Loading…</div>}
+      {events && events.length === 0 && <div className="empty">No approval activity yet.</div>}
+      {events && events.length > 0 && (
+        <table className="data">
+          <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Comment</th></tr></thead>
+          <tbody>{events.map((e, i) => (
+            <tr key={i}><td className="nowrap muted">{when(e.at)}</td><td>{e.user}</td><td>{e.action}</td><td className="muted">{e.comment}</td></tr>
+          ))}</tbody>
+        </table>
+      )}
+    </Modal>
   )
 }

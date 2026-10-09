@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, getCompanyId, setCompanyId, type DeptView, type InboxItem, type VersionSummary } from '../api'
+import { api, getCompanyId, setCompanyId, type DeptView, type ForecastInboxItem, type InboxItem, type VersionSummary } from '../api'
 import { go } from '../App'
 import { useAuth } from '../auth'
 import { DeptActions, DeptPill } from '../DeptActions'
@@ -13,6 +13,7 @@ import { Empty, VersionPill, revLabel, useToast } from '../ui'
 export default function ApprovalsPage({ versionId }: { versionId?: number }) {
   const { isAdmin, isApprover } = useAuth()
   const [inbox, setInbox] = useState<InboxItem[] | null>(null)
+  const [fInbox, setFInbox] = useState<ForecastInboxItem[]>([])
   const [versions, setVersions] = useState<VersionSummary[] | null>(null)
   const [depts, setDepts] = useState<DeptView[] | null>(null)
   const [filter, setFilter] = useState<'all' | 'Draft' | 'Submitted' | 'Approved' | 'Rejected'>('all')
@@ -26,6 +27,7 @@ export default function ApprovalsPage({ versionId }: { versionId?: number }) {
 
   const load = useCallback(() => {
     if (isApprover) api.inbox().then(setInbox).catch(() => setInbox([]))
+    if (isApprover) api.forecastInbox().then(setFInbox).catch(() => setFInbox([]))
     if (vid) api.departments(vid).then(setDepts).catch(e => setToast({ kind: 'error', text: e.message }))
   }, [vid, isApprover])
   useEffect(load, [load])
@@ -47,6 +49,11 @@ export default function ApprovalsPage({ versionId }: { versionId?: number }) {
   const approveAll = async () => {
     if (!version || !confirm(`Approve ${revLabel(version)} as the company budget? It will be locked and ready to push to SAP B1.`)) return
     try { await api.approve(version.id); done(`${revLabel(version)} approved — push it to SAP B1 from the budget page.`) } catch (e) { fail((e as Error).message) }
+  }
+
+  const openForecast = (i: ForecastInboxItem) => {
+    if (i.companyId !== getCompanyId()) setCompanyId(i.companyId)
+    go({ page: 'forecast', year: i.year, basis: i.basis, measure: i.measure, udf: i.udf || undefined })
   }
 
   const openInbox = (i: InboxItem) => {
@@ -90,6 +97,29 @@ export default function ApprovalsPage({ versionId }: { versionId?: number }) {
                 ))}</tbody>
               </table>
             )}
+          </div>
+        </div>
+      )}
+
+      {isApprover && fInbox.length > 0 && (
+        <div className="panel flush">
+          <div className="panel-head">
+            <h2>Sales forecasts waiting for {isAdmin ? 'approval' : 'your approval'}</h2>
+            <span className="status warn">{fInbox.length}</span>
+          </div>
+          <div className="panel-body table-wrap">
+            <table className="data">
+              <thead><tr><th>Forecast</th><th>For</th><th>Company</th><th>Submitted by</th><th>When</th><th>Note</th><th /></tr></thead>
+              <tbody>{fInbox.map(i => (
+                <tr key={`${i.forecastId}-${i.member}`} className="clickable" onClick={() => openForecast(i)}>
+                  <td>FY {i.year} · {i.basis === 'Dimension' ? 'by cost center' : i.basis === 'ItemGroup' ? 'by item group' : i.basis === 'Item' ? 'by item' : `by ${i.udf || 'UDF'}`}{i.measure === 'Quantity' ? ' · quantity' : ''}</td>
+                  <td><strong>{i.member === '*' ? i.memberName : i.member}</strong>{i.member !== '*' && i.memberName !== i.member && <span className="muted"> · {i.memberName}</span>}{isAdmin && !i.assignedToMe && <span className="small muted"> · for another approver</span>}</td>
+                  <td>{i.companyName}</td><td>{i.submittedBy}</td>
+                  <td className="nowrap muted">{when(i.submittedAt)}</td><td className="muted">{i.comment}</td>
+                  <td><button className="primary" style={{ minHeight: 26 }}>Review</button></td>
+                </tr>
+              ))}</tbody>
+            </table>
           </div>
         </div>
       )}

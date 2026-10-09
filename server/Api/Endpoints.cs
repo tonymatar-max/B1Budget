@@ -564,8 +564,34 @@ public static class Endpoints
             var scope = await access.ScopeAsync();
             var m = Enum.TryParse<ForecastMethod>(method, true, out var fm) ? fm : ForecastMethod.Budget;
             var seeded = await forecast.SeedAsync(c, year, ParseBasis(basis), udf, group, ParseMeasure(measure), m, growth ?? 0m, years ?? 3, scope, refresh ?? false, ct);
-            return Results.Ok(new { seeded = seeded.Count, brands = seeded });
+            return Results.Ok(new { seeded = seeded.Seeded.Count, brands = seeded.Seeded, locked = seeded.Locked });
         });
+
+        // ------------------------------------------------------------ sales forecast approval
+        // member = the cost center on the cost-center basis; ignored (the whole forecast) on item-based bases.
+
+        api.MapPost("/forecast/{year:int}/approval/{action}", async (int year, string action, string? member, string? basis, string? udf, string? measure,
+            DeptActionRequest r, ForecastWorkflowService wfs, AccessService access, CancellationToken ct) =>
+        {
+            var act = action.ToLowerInvariant() switch
+            {
+                "submit" => DeptAction.Submitted, "approve" => DeptAction.Approved,
+                "reject" => DeptAction.Rejected, "reopen" => DeptAction.Reopened,
+                _ => throw new ArgumentException($"Unknown action '{action}'."),
+            };
+            var c = await access.CompanyAsync();
+            await wfs.ActAsync(c, year, ParseBasis(basis), udf, ParseMeasure(measure), member ?? ForecastWorkflowService.All, act, r.Comment, await access.ScopeAsync(), ct);
+            return Results.Ok();
+        });
+
+        api.MapGet("/forecast/{year:int}/approval/events", async (int year, string? member, string? basis, string? udf, string? measure,
+            ForecastWorkflowService wfs, AccessService access) =>
+            Results.Ok(await wfs.EventsAsync(await access.CompanyAsync(), year, ParseBasis(basis), udf, ParseMeasure(measure),
+                member ?? ForecastWorkflowService.All, await access.ScopeAsync())));
+
+        // Forecasts waiting for me (admins: every submission), across companies.
+        api.MapGet("/approvals/forecast-inbox", async (ForecastWorkflowService wfs, AccessService access) =>
+            Results.Ok(await wfs.InboxAsync(await access.ScopeAsync())));
 
         // ------------------------------------------------------------ department approval workflow
 

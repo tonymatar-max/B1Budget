@@ -32,6 +32,7 @@ builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<GatewayFactory>();
 builder.Services.AddSingleton<PushService>();
 builder.Services.AddScoped<ReportService>();
+builder.Services.AddScoped<ForecastWorkflowService>();
 builder.Services.AddScoped<ForecastService>();
 builder.Services.AddScoped<WorkflowService>();
 builder.Services.AddScoped<AccessService>();

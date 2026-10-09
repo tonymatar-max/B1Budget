@@ -143,6 +143,60 @@ public class Notifier(AppDbContext db, MailQueue queue)
             Template(headline, intro, budget, st.Comment, action == DeptAction.Submitted ? "Review the budget" : "Open the budget", link));
     }
 
+    /// <summary>An approval step on a sales forecast (a cost center, or the whole forecast for item-based bases).</summary>
+    public async Task ForecastActionAsync(SalesForecast f, Company company, string unit, DeptAction action, AppUser actor, ForecastStatus st)
+    {
+        var settings = await db.MailSettings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == 1);
+        if (settings is not { Enabled: true }) return;
+
+        var whole = unit == ForecastWorkflowService.All;
+        var brandName = whole ? null : await db.Brands.Where(b => b.CompanyId == f.CompanyId && b.Code == unit).Select(b => b.Name).FirstOrDefaultAsync();
+        var ownerIds = whole ? new List<int>()
+            : await db.UserDepartments.Where(d => d.CompanyId == f.CompanyId && d.BrandCode == unit).Select(d => d.UserId).ToListAsync();
+
+        var basisText = f.Basis switch
+        {
+            ForecastBasis.Dimension => "cost center", ForecastBasis.ItemGroup => "item group", ForecastBasis.Item => "item",
+            _ => string.IsNullOrEmpty(f.UdfName) ? "item UDF" : f.UdfName,
+        };
+        var what = whole ? $"the {basisText} {(f.Measure == ForecastMeasure.Quantity ? "quantity " : "")}forecast" : $"the sales forecast for <b>{E(unit)}{(brandName is null ? "" : " · " + E(brandName))}</b>";
+        var plain = whole ? $"{basisText} forecast" : $"forecast for {unit}";
+        var context = $"Sales forecast FY {f.FiscalYear} ({company.Name}){(f.Measure == ForecastMeasure.Quantity ? " - quantity" : "")}";
+
+        List<int> recipients;
+        string subject, headline, intro;
+        switch (action)
+        {
+            case DeptAction.Submitted:
+                recipients = st.ApproverId is int a ? [a] : await db.Users.Where(u => u.Active && u.Role == UserRole.Admin).Select(u => u.Id).ToListAsync();
+                subject = $"Sales {plain} submitted for your approval";
+                headline = "A sales forecast is waiting for your approval";
+                intro = $"{E(actor.DisplayName)} submitted {what}.";
+                break;
+            case DeptAction.Approved:
+                recipients = [.. ownerIds, .. st.SubmittedById is int s1 ? new[] { s1 } : []];
+                subject = $"Sales {plain} approved";
+                headline = "Your sales forecast was approved";
+                intro = $"{E(actor.DisplayName)} approved {what}. It is now locked.";
+                break;
+            case DeptAction.Rejected:
+                recipients = [.. ownerIds, .. st.SubmittedById is int s2 ? new[] { s2 } : []];
+                subject = $"Sales {plain} needs changes";
+                headline = "Your sales forecast was sent back for changes";
+                intro = $"{E(actor.DisplayName)} rejected {what}. Make the changes and submit it again.";
+                break;
+            default:
+                recipients = [.. ownerIds, .. st.SubmittedById is int s3 ? new[] { s3 } : []];
+                subject = $"Sales {plain} reopened";
+                headline = "A sales forecast was reopened for changes";
+                intro = $"{E(actor.DisplayName)} reopened {what}. It can be edited again and needs a new submission.";
+                break;
+        }
+        var link = $"{settings.AppUrl.TrimEnd('/')}/#/forecast?y={f.FiscalYear}&b={f.Basis}&m={f.Measure}" + (string.IsNullOrEmpty(f.UdfName) ? "" : $"&u={Uri.EscapeDataString(f.UdfName)}");
+        await SendToUsersAsync(recipients.Where(id => id != actor.Id).Distinct(), subject,
+            Template(headline, intro, context, st.Comment, action == DeptAction.Submitted ? "Review the forecast" : "Open the forecast", link));
+    }
+
     /// <summary>The whole revision was approved by finance — tell everyone who owns a department in it.</summary>
     public async Task BudgetApprovedAsync(BudgetVersion v, AppUser actor)
     {

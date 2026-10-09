@@ -190,6 +190,39 @@ public class SalesForecastLine
     public decimal[] Amounts { get; set; } = new decimal[12];
 }
 
+/// <summary>
+/// Approval state of one unit of a sales forecast, mirroring the budget's per-department workflow
+/// (Draft -> Submitted -> Approved / Rejected). On the cost-center basis the unit is one cost center
+/// (<see cref="MemberCode"/> = the distribution rule); on item-based bases it is the whole forecast
+/// (<see cref="MemberCode"/> = "*"). Submitted and Approved units are locked against edits.
+/// </summary>
+public class ForecastStatus
+{
+    public int Id { get; set; }
+    public int ForecastId { get; set; }
+    public string MemberCode { get; set; } = "";
+    public DeptStatus Status { get; set; } = DeptStatus.Draft;
+    public int? SubmittedById { get; set; }
+    public DateTime? SubmittedAt { get; set; }
+    /// <summary>Who must approve: the submitter's manager on the cost-center basis; null = any admin.</summary>
+    public int? ApproverId { get; set; }
+    public int? DecidedById { get; set; }
+    public DateTime? DecidedAt { get; set; }
+    public string? Comment { get; set; }
+}
+
+/// <summary>Audit trail of a forecast's approval workflow.</summary>
+public class ForecastEvent
+{
+    public int Id { get; set; }
+    public int ForecastId { get; set; }
+    public string MemberCode { get; set; } = "";
+    public DeptAction Action { get; set; }
+    public int UserId { get; set; }
+    public DateTime At { get; set; } = DateTime.UtcNow;
+    public string? Comment { get; set; }
+}
+
 // ------------------------------------------------------------------ users & approval workflow
 
 public enum UserRole { User, Manager, Admin }

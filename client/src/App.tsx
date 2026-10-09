@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, getCompanyId, setCompanyId, type Company, type Me } from './api'
+import { api, getCompanyId, setCompanyId, type Company, type Me, type ForecastBasis, type ForecastMeasure } from './api'
 import { AuthContext, type Auth } from './auth'
 import LoginPage from './pages/LoginPage'
 import ApprovalsPage from './pages/ApprovalsPage'
@@ -18,7 +18,7 @@ export type Route =
   | { page: 'budgets' }
   | { page: 'editor'; id: number; brand?: string }
   | { page: 'bva'; id?: number }
-  | { page: 'forecast'; year?: number }
+  | { page: 'forecast'; year?: number; basis?: ForecastBasis; measure?: ForecastMeasure; udf?: string }
   | { page: 'compare'; a?: number; b?: number }
   | { page: 'group' }
   | { page: 'history'; runId?: number }
@@ -28,6 +28,9 @@ export type Route =
   | { page: 'email' }
 
 const num = (v: string | null) => (v ? Number(v) : undefined)
+const BASES: ForecastBasis[] = ['Dimension', 'ItemGroup', 'Item', 'ItemUdf']
+const asBasis = (v: string | null) => BASES.find(b => b === v)
+const asMeasure = (v: string | null): ForecastMeasure | undefined => (v === 'Quantity' || v === 'Value' ? v : undefined)
 
 function parse(hash: string): Route {
   const [path, q] = hash.replace(/^#\/?/, '').split('?')
@@ -35,7 +38,7 @@ function parse(hash: string): Route {
   const parts = path.split('/')
   if (parts[0] === 'budgets' && parts[1]) return { page: 'editor', id: Number(parts[1]), brand: params.get('b') ?? undefined }
   if (parts[0] === 'bva') return { page: 'bva', id: params.get('v') ? Number(params.get('v')) : undefined }
-  if (parts[0] === 'forecast') return { page: 'forecast', year: num(params.get('y')) }
+  if (parts[0] === 'forecast') return { page: 'forecast', year: num(params.get('y')), basis: asBasis(params.get('b')), measure: asMeasure(params.get('m')), udf: params.get('u') || undefined }
   if (parts[0] === 'compare') return { page: 'compare', a: num(params.get('a')), b: num(params.get('b')) }
   if (parts[0] === 'group') return { page: 'group' }
   if (parts[0] === 'history') return { page: 'history', runId: parts[1] ? Number(parts[1]) : undefined }
@@ -50,7 +53,14 @@ export function href(r: Route): string {
   switch (r.page) {
     case 'editor': return `#/budgets/${r.id}${r.brand ? `?b=${encodeURIComponent(r.brand)}` : ''}`
     case 'bva': return r.id ? `#/bva?v=${r.id}` : '#/bva'
-    case 'forecast': return r.year ? `#/forecast?y=${r.year}` : '#/forecast'
+    case 'forecast': {
+      const q = new URLSearchParams()
+      if (r.year) q.set('y', String(r.year))
+      if (r.basis) q.set('b', r.basis)
+      if (r.measure) q.set('m', r.measure)
+      if (r.udf) q.set('u', r.udf)
+      return q.toString() ? `#/forecast?${q}` : '#/forecast'
+    }
     case 'compare': return `#/compare${r.a || r.b ? `?a=${r.a ?? ''}&b=${r.b ?? ''}` : ''}`
     case 'group': return '#/group'
     case 'history': return r.runId ? `#/history/${r.runId}` : '#/history'
@@ -123,7 +133,9 @@ function Shell({ me, reloadMe }: { me: Me; reloadMe: () => void }) {
   const [inboxCount, setInboxCount] = useState(0)
   useEffect(() => {
     if (!auth.isApprover) return
-    const tick = () => api.inbox().then(i => setInboxCount(i.length)).catch(() => {})
+    // Budgets and sales forecasts both wait for the same approvers, so the badge counts both.
+    const tick = () => Promise.all([api.inbox().then(i => i.length).catch(() => 0), api.forecastInbox().then(i => i.length).catch(() => 0)])
+      .then(([b, f]) => setInboxCount(b + f))
     tick()
     const t = setInterval(tick, 60000)
     window.addEventListener('workflow-changed', tick)
@@ -201,7 +213,7 @@ function Shell({ me, reloadMe }: { me: Me; reloadMe: () => void }) {
         {route.page === 'budgets' && <BudgetsPage />}
         {route.page === 'editor' && <EditorPage key={`${route.id}-${route.brand ?? ''}`} id={route.id} initialBrand={route.brand} settings={company} />}
         {route.page === 'bva' && <BvaPage versionId={route.id} />}
-        {route.page === 'forecast' && <ForecastPage year={route.year} />}
+        {route.page === 'forecast' && <ForecastPage key={`${route.year}-${route.basis}-${route.measure}-${route.udf}`} year={route.year} basis={route.basis} measure={route.measure} udf={route.udf} />}
         {route.page === 'compare' && <ComparePage key={`${route.a}-${route.b}`} a={route.a} b={route.b} />}
         {route.page === 'approvals' && <ApprovalsPage versionId={route.v} />}
         {route.page === 'group' && (auth.isAdmin ? <GroupPage /> : <Denied />)}

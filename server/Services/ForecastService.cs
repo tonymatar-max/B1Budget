@@ -7,7 +7,9 @@ using Microsoft.EntityFrameworkCore;
 namespace B1Budget.Api.Services;
 
 public record ForecastBrandRow(string Brand, string BrandName, bool CanEdit,
-    decimal[] Forecast, decimal[] Budget, decimal[] Actual);
+    decimal[] Forecast, decimal[] Budget, decimal[] Actual, ForecastFlow Flow);
+
+public record SeedResult(List<string> Seeded, int Locked);
 
 /// <summary>Projects the not-yet-elapsed months of one member from its current-year actuals, last year's actuals
 /// and (dimension basis) its budget. Elapsed months are always the real actuals.</summary>
@@ -61,7 +63,7 @@ public record ForecastReport(int CompanyId, string Currency, int FiscalYear, int
     ForecastBasis Basis, string Udf, string[] UdfFields, bool HasBudgetBaseline, string MemberLabel,
     string[] PeriodLabels, int CurrentPeriod, int ElapsedMonths, bool HasForecast, DateTime? UpdatedAt,
     DateTime? ActualsAsOf, int? BudgetVersionId, string? BudgetVersionName, List<ForecastBrandRow> Rows,
-    string? ActualsError, ForecastMemberDto[] ItemGroups, string Group, ForecastMeasure Measure);
+    string? ActualsError, ForecastMemberDto[] ItemGroups, string Group, ForecastMeasure Measure, ForecastFlow? Whole);
 
 /// <summary>
 /// Sales forecast for one company, fiscal year and <see cref="ForecastBasis"/>: expected sales per member per
@@ -70,7 +72,7 @@ public record ForecastReport(int CompanyId, string Currency, int FiscalYear, int
 /// dimension basis (the app budgets by cost center × account); item bases seed the future from a run-rate.
 /// App-only — nothing here is pushed to SAP B1.
 /// </summary>
-public class ForecastService(AppDbContext db, ReportService reports, GatewayFactory factory)
+public class ForecastService(AppDbContext db, ReportService reports, GatewayFactory factory, ForecastWorkflowService wf)
 {
     /// <summary>What a member is called, for UI labels.</summary>
     public static string MemberLabelFor(ForecastBasis basis, string udf) => basis switch
@@ -199,18 +201,24 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
             .FirstOrDefaultAsync(f => f.CompanyId == c.Id && f.FiscalYear == fy && f.Basis == basis && f.UdfName == udf && f.Measure == measure, ct);
         var forecastLines = forecast?.Lines.ToDictionary(l => l.BrandCode, l => l.Amounts) ?? new();
 
-        // Who can edit which member: dimension is department-scoped; item bases are admin-only (already checked).
-        bool CanEdit(string code) => basis != ForecastBasis.Dimension ? scope.IsAdmin : scope.Has(c.Id, code);
+        // Who may see/work on which member: dimension is department-scoped; item bases are admin-only (already checked).
+        bool Access(string code) => basis != ForecastBasis.Dimension ? scope.IsAdmin : scope.Has(c.Id, code);
 
         var codes = names.Keys.Concat(budget.Keys).Concat(forecastLines.Keys).Concat(actual.Keys)
-            .Where(code => !string.IsNullOrEmpty(code) && CanEdit(code))
+            .Where(code => !string.IsNullOrEmpty(code) && Access(code))
             .Distinct().OrderBy(code => code).ToList();
 
+        // Approval state: one unit per cost center, or the whole grid ("*") on item-based bases. A submitted or approved unit is locked.
+        var units = basis == ForecastBasis.Dimension ? codes : new List<string> { ForecastWorkflowService.All };
+        var flows = await wf.FlowsAsync(forecast, scope, units, _ => true);   // access is already enforced by `codes`
+        ForecastFlow FlowOf(string code) => flows[ForecastWorkflowService.UnitOf(basis, code)];
+
         var rows = codes.Select(code => new ForecastBrandRow(
-            code, names.GetValueOrDefault(code, code), CanEdit(code),
+            code, names.GetValueOrDefault(code, code), ForecastWorkflowService.Editable(FlowOf(code).Status),
             forecastLines.GetValueOrDefault(code) ?? new decimal[12],
             budget.GetValueOrDefault(code) ?? new decimal[12],
-            actual.GetValueOrDefault(code) ?? new decimal[12])).ToList();
+            actual.GetValueOrDefault(code) ?? new decimal[12],
+            FlowOf(code))).ToList();
 
         var current2 = today > cal.PeriodEnd(fy, 12) ? 13 : cal.PeriodOf(fy, today);
         var labels = Enumerable.Range(1, 12).Select(p => cal.PeriodLabel(fy, p)).ToArray();
@@ -218,7 +226,8 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
             basis == ForecastBasis.Dimension && baseline != null, MemberLabelFor(basis, udf),
             labels, current2, ElapsedMonths(cal, fy, today), forecast != null, forecast?.UpdatedAt, asOf,
             baseline?.Id, baseline is null ? null : $"{baseline.Name} · Rev {baseline.RevisionNo}", rows, error,
-            itemGroups.OrderBy(g => g.Name).ToArray(), group, measure);
+            itemGroups.OrderBy(g => g.Name).ToArray(), group, measure,
+            basis == ForecastBasis.Dimension ? null : flows[ForecastWorkflowService.All]);
     }
 
     private async Task<SalesForecast> EnsureForecastAsync(int companyId, int year, ForecastBasis basis, string udf, ForecastMeasure measure, CancellationToken ct)
@@ -235,6 +244,7 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
         if (amounts.Length != 12) throw new InvalidOperationException("A forecast line needs exactly 12 monthly amounts.");
         if (basis == ForecastBasis.Dimension) scope.Require(c.Id, member);
         measure = NormMeasure(basis, measure);
+        await wf.RequireEditableAsync(c.Id, year, basis, udf, measure, member);
         var f = await EnsureForecastAsync(c.Id, year, basis, udf, measure, ct);
         await db.SaveChangesAsync(ct);
         var line = await db.ForecastLines.FirstOrDefaultAsync(l => l.ForecastId == f.Id && l.BrandCode == member, ct);
@@ -280,7 +290,7 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
     /// actuals; the remaining months are projected (budget, run-rate, prior-year growth, seasonal, linear trend,
     /// or the average of the previous <paramref name="years"/> years). Overwrites those members; returns those written.
     /// </summary>
-    public async Task<List<string>> SeedAsync(Company c, int year, ForecastBasis basis, string? udf, string? group, ForecastMeasure measure, ForecastMethod method, decimal growthPct, int years, Scope scope, bool refresh, CancellationToken ct)
+    public async Task<SeedResult> SeedAsync(Company c, int year, ForecastBasis basis, string? udf, string? group, ForecastMeasure measure, ForecastMethod method, decimal growthPct, int years, Scope scope, bool refresh, CancellationToken ct)
     {
         RequireBasisAccess(basis, scope);
         measure = NormMeasure(basis, measure);
@@ -302,9 +312,18 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
         else if (method is ForecastMethod.PriorYearGrowth or ForecastMethod.SeasonalRunRate)
             prior = await ActualsByMemberAsync(c, basis, udf, measure, year - 1, refresh, ct);
 
-        bool CanEdit(string code) => basis != ForecastBasis.Dimension ? scope.IsAdmin : scope.Has(c.Id, code);
+        bool Access(string code) => basis != ForecastBasis.Dimension ? scope.IsAdmin : scope.Has(c.Id, code);
         var members = names.Keys.Concat(budget.Keys).Concat(actual.Keys).Concat(prior.Keys)
-            .Where(code => !string.IsNullOrEmpty(code) && CanEdit(code)).Distinct().ToList();
+            .Where(code => !string.IsNullOrEmpty(code) && Access(code)).Distinct().ToList();
+
+        // Locked (submitted/approved) units are never overwritten: skip locked cost centers, refuse a locked whole forecast.
+        var current = await wf.FindAsync(c.Id, year, basis, udf, measure);
+        var statuses = await wf.StatusesAsync(current?.Id);
+        bool IsLocked(string code) => !ForecastWorkflowService.Editable(ForecastWorkflowService.StatusOf(statuses, ForecastWorkflowService.UnitOf(basis, code)));
+        if (basis != ForecastBasis.Dimension && IsLocked(""))
+            throw new InvalidOperationException("This forecast is submitted or approved and locked - reopen it before seeding.");
+        var lockedCount = members.Count(IsLocked);
+        members = members.Where(code => !IsLocked(code)).ToList();
 
         var f = await EnsureForecastAsync(c.Id, year, basis, udf, measure, ct);
         await db.SaveChangesAsync(ct);
@@ -324,7 +343,7 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
         }
         f.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
-        return seeded;
+        return new SeedResult(seeded, lockedCount);
     }
 
     // ------------------------------------------------------------------ Excel round-trip
@@ -420,8 +439,10 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
 
             var ws = wb.Worksheets.TryGetWorksheet("Forecast", out var fs) ? fs : wb.Worksheet(1);
             // Valid members = everything the page would list for this forecast (no group filter, so a filtered export still imports).
-            var known = (await GetAsync(c, year, basis, udf, null, measure, false, scope, ct)).Rows.Where(r => r.CanEdit).Select(r => r.Brand).ToList();
-            var canon = known.ToDictionary(k => k, k => k, StringComparer.OrdinalIgnoreCase);
+            var current = await GetAsync(c, year, basis, udf, null, measure, false, scope, ct);
+            if (current.Whole is { } whole && !ForecastWorkflowService.Editable(whole.Status))
+                throw new InvalidOperationException($"This forecast is {(whole.Status == DeptStatus.Submitted ? "waiting for approval" : "approved")} and locked - reopen it before importing.");
+            var canon = current.Rows.ToDictionary(r => r.Brand, r => r, StringComparer.OrdinalIgnoreCase);
 
             var errors = new List<string>();
             var parsed = new Dictionary<string, decimal[]>(StringComparer.OrdinalIgnoreCase);
@@ -431,7 +452,9 @@ public class ForecastService(AppDbContext db, ReportService reports, GatewayFact
                 var n = xr.RowNumber();
                 var code = xr.Cell(1).GetString().Trim();
                 if (code == "") continue;
-                if (!canon.TryGetValue(code, out var member)) { errors.Add($"Row {n}: unknown or read-only {MemberLabelFor(basis, udf).ToLowerInvariant()} '{code}'."); skipped++; continue; }
+                if (!canon.TryGetValue(code, out var target)) { errors.Add($"Row {n}: unknown {MemberLabelFor(basis, udf).ToLowerInvariant()} '{code}'."); skipped++; continue; }
+                var member = target.Brand;
+                if (!target.CanEdit) { errors.Add($"Row {n} ({member}): locked - {(target.Flow.Status == DeptStatus.Submitted ? "waiting for approval" : "approved")}; reopen it to change it."); skipped++; continue; }
                 var amounts = new decimal[12];
                 var bad = false;
                 for (var p = 0; p < 12 && !bad; p++)
